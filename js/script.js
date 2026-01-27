@@ -1,0 +1,526 @@
+// =====================
+// CONFIG API (Apps Script Web App)
+// =====================
+const API_BASE = "https://script.google.com/macros/s/AKfycby7g9yrzm8_2j0HA0P2vLHfXP-rA8dgexHccj8a7e5FEnT1jNJhxi0jKDeb8D5vX3nB5g/exec"; // termina en /exec
+
+// =====================
+// Local cache/offline keys
+// =====================
+const LS_CACHE = "lista_drive_cache_v3";
+const LS_PENDING = "lista_drive_pending_v3";
+
+// =====================
+// UI construir estructura
+// =====================
+const header = document.querySelector("header");
+
+const titulo = document.createElement("section");
+titulo.classList = "titulo";
+header.appendChild(titulo);
+
+const h1 = document.createElement("h1");
+h1.innerText = "Lista de Compras";
+titulo.appendChild(h1);
+
+const syncPill = document.createElement("div");
+syncPill.className = "sync-pill";
+syncPill.innerHTML = `<span class="sync-dot"></span><span class="sync-text">Cargando…</span>`;
+titulo.appendChild(syncPill);
+
+const main = document.querySelector("main");
+
+const seccionLista = document.createElement("section");
+seccionLista.classList = "agregarItem";
+main.appendChild(seccionLista);
+
+const label1 = document.createElement("label");
+label1.innerText = "Agregar item: ";
+seccionLista.appendChild(label1);
+
+const input1 = document.createElement("input");
+input1.type = "text";
+seccionLista.appendChild(input1);
+
+const button1 = document.createElement("button");
+button1.innerText = "Agregar";
+seccionLista.appendChild(button1);
+
+const seccionItems = document.createElement("section");
+seccionItems.classList = "items";
+main.appendChild(seccionItems);
+
+const seccionUtilidades = document.createElement("section");
+seccionUtilidades.classList = "utilidades";
+main.appendChild(seccionUtilidades);
+
+const copiarContainer = document.createElement("div");
+copiarContainer.classList = "copiar-lista";
+seccionUtilidades.appendChild(copiarContainer);
+
+const labelCopiar = document.createElement("label");
+labelCopiar.innerText = "Copiar items de esta lista";
+copiarContainer.appendChild(labelCopiar);
+
+const buttonCopiar = document.createElement("button");
+buttonCopiar.innerText = "Copiar items";
+copiarContainer.appendChild(buttonCopiar);
+
+const importarContainer = document.createElement("div");
+importarContainer.classList = "importar-lista";
+seccionUtilidades.appendChild(importarContainer);
+
+const labelImportar = document.createElement("label");
+labelImportar.innerText = "Pegar una lista que te pasaron:";
+importarContainer.appendChild(labelImportar);
+
+const textareaImportar = document.createElement("textarea");
+textareaImportar.rows = 4;
+textareaImportar.placeholder = "Un item por línea o separados por comas...";
+importarContainer.appendChild(textareaImportar);
+
+const buttonImportar = document.createElement("button");
+buttonImportar.innerText = "Agregar a mi lista";
+importarContainer.appendChild(buttonImportar);
+
+const toastRoot = document.getElementById("toast-root");
+
+// =====================
+// Estado
+// =====================
+let listaItems = [];
+let remoteMeta = { updatedAt: 0 };
+
+// =====================
+// UI helpers
+// =====================
+function setSync(state, text) {
+  syncPill.classList.remove("ok", "saving", "offline");
+  if (state) syncPill.classList.add(state);
+  syncPill.querySelector(".sync-text").textContent = text;
+}
+
+function escapeHtml(s) {
+  return (s ?? "").toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function toast(msg, type = "ok", small = "") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `${escapeHtml(msg)}${small ? `<div class="small">${escapeHtml(small)}</div>` : ""}`;
+  toastRoot.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateY(6px)";
+    el.style.transition = "all .2s ease";
+  }, 2400);
+  setTimeout(() => el.remove(), 2700);
+}
+
+// =====================
+// Data helpers
+// =====================
+function ordenarLista(arr) {
+  return arr.sort((a, b) => {
+    if (a.completado === b.completado) {
+      return a.texto.toLowerCase().localeCompare(b.texto.toLowerCase());
+    }
+    // completados arriba
+    return (b.completado === true) - (a.completado === true);
+  });
+}
+
+function normalizarTexto(t) {
+  return (t ?? "").toString().trim();
+}
+
+function dedupNormalize(items) {
+  const seen = new Set();
+  const out = [];
+  for (const it of items || []) {
+    const texto = normalizarTexto(it?.texto);
+    if (!texto) continue;
+    const key = texto.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ texto, completado: !!it?.completado });
+  }
+  return ordenarLista(out);
+}
+
+// =====================
+// Cache
+// =====================
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(LS_CACHE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.items)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(items, meta = {}) {
+  try {
+    localStorage.setItem(LS_CACHE, JSON.stringify({
+      items,
+      meta: { updatedAt: meta.updatedAt || 0, ts: Date.now() }
+    }));
+  } catch {}
+}
+
+function loadPending() {
+  try {
+    const raw = localStorage.getItem(LS_PENDING);
+    const p = raw ? JSON.parse(raw) : null;
+    return Array.isArray(p?.items) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+function setPending(items) {
+  try { localStorage.setItem(LS_PENDING, JSON.stringify({ items, ts: Date.now() })); } catch {}
+}
+
+function clearPending() {
+  try { localStorage.removeItem(LS_PENDING); } catch {}
+}
+
+function isOnline() {
+  return navigator.onLine !== false;
+}
+
+// =====================
+// API: JSONP GET (evita CORS sin token)
+// =====================
+function apiGetJSONP(action) {
+  return new Promise((resolve, reject) => {
+    const cbName = "jsonp_cb_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+
+    window[cbName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    const cleanup = () => {
+      try { delete window[cbName]; } catch {}
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
+    };
+
+    const url = `${API_BASE}?action=${encodeURIComponent(action)}&callback=${encodeURIComponent(cbName)}&_=${Date.now()}`;
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("JSONP error (URL/deploy)."));
+    };
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("JSONP timeout."));
+    }, 12000);
+
+    document.body.appendChild(script);
+  });
+}
+
+// POST no-cors (sin token)
+async function apiSet(items) {
+  const url = `${API_BASE}?action=set`;
+  await fetch(url, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ items })
+  });
+}
+
+// =====================
+// Render
+// =====================
+function render() {
+  seccionItems.innerHTML = "";
+
+  listaItems.forEach((item, index) => {
+    const itemContainer = document.createElement("div");
+    itemContainer.classList.add("item-container");
+
+    const tick = document.createElement("input");
+    tick.type = "checkbox";
+    tick.checked = !!item.completado;
+
+    tick.addEventListener("change", () => {
+      item.completado = tick.checked;
+      listaItems = dedupNormalize(listaItems);
+      render();
+      scheduleSave("Cambio de estado");
+    });
+
+    const listItem = document.createElement("p");
+    listItem.innerText = item.texto;
+
+    const botonEliminarItem = document.createElement("button");
+    botonEliminarItem.innerText = "Eliminar";
+    botonEliminarItem.classList.add("eliminar-item");
+    botonEliminarItem.setAttribute("data-index", index);
+
+    itemContainer.appendChild(tick);
+    itemContainer.appendChild(listItem);
+    itemContainer.appendChild(botonEliminarItem);
+
+    seccionItems.appendChild(itemContainer);
+  });
+}
+
+// =====================
+// CRUD
+// =====================
+function agregarElemento(texto, completado = false) {
+  const t = normalizarTexto(texto);
+  if (!t) return;
+
+  const existe = listaItems.some(obj => obj.texto.toLowerCase() === t.toLowerCase());
+  if (existe) {
+    toast("Ese item ya existe", "warn", "No se agregan duplicados.");
+    return;
+  }
+
+  listaItems.push({ texto: t, completado: !!completado });
+  listaItems = dedupNormalize(listaItems);
+  render();
+  scheduleSave("Item agregado");
+}
+
+function eliminarElemento(index) {
+  listaItems.splice(index, 1);
+  render();
+  scheduleSave("Item eliminado");
+}
+
+// =====================
+// Save engine (debounce + offline queue + verify)
+// =====================
+let saveTimer = null;
+let saving = false;
+
+function scheduleSave(reason = "") {
+  saveCache(listaItems, remoteMeta);
+
+  if (!isOnline()) {
+    setSync("offline", "Sin conexión — Guardado local");
+    setPending(listaItems);
+    if (reason) toast("Guardado local (offline)", "warn", "Se sincroniza cuando vuelva internet.");
+    return;
+  }
+
+  setSync("saving", "Guardando…");
+  clearTimeout(saveTimer);
+
+  saveTimer = setTimeout(async () => {
+    if (saving) return;
+    saving = true;
+
+    try {
+      await apiSet(listaItems);
+      setPending(listaItems);
+
+      // verificación real con GET
+      const resp = await apiGetJSONP("get");
+      const remoteItems = Array.isArray(resp?.items) ? resp.items : [];
+      const meta = resp?.meta || { updatedAt: 0 };
+
+      listaItems = dedupNormalize(remoteItems);
+      remoteMeta = { updatedAt: Number(meta.updatedAt || 0) };
+      saveCache(listaItems, remoteMeta);
+      clearPending();
+
+      render();
+      setSync("ok", "Guardado ✅");
+      if (reason) toast("Guardado ✅", "ok", reason);
+    } catch {
+      setPending(listaItems);
+      setSync("offline", "No se pudo guardar — Queda en cola");
+      toast("No se pudo guardar", "err", "Quedó pendiente, se reintenta solo.");
+    } finally {
+      saving = false;
+    }
+  }, 650);
+}
+
+async function trySyncPending() {
+  if (!isOnline()) {
+    setSync("offline", "Sin conexión — Guardado local");
+    return;
+  }
+
+  const pending = loadPending();
+  if (!pending?.items) {
+    await refreshFromRemote(false);
+    return;
+  }
+
+  setSync("saving", "Sincronizando…");
+  try {
+    listaItems = dedupNormalize(pending.items);
+    render();
+
+    await apiSet(listaItems);
+
+    const resp = await apiGetJSONP("get");
+    const remoteItems = Array.isArray(resp?.items) ? resp.items : [];
+    const meta = resp?.meta || { updatedAt: 0 };
+
+    listaItems = dedupNormalize(remoteItems);
+    remoteMeta = { updatedAt: Number(meta.updatedAt || 0) };
+    saveCache(listaItems, remoteMeta);
+    clearPending();
+
+    render();
+    setSync("ok", "Sincronizado ✅");
+    toast("Sincronizado ✅", "ok", "Se aplicaron cambios pendientes.");
+  } catch {
+    setSync("offline", "Sincronización pendiente");
+  }
+}
+
+async function refreshFromRemote(showToast = true) {
+  if (!isOnline()) {
+    setSync("offline", "Sin conexión — usando cache");
+    return;
+  }
+  try {
+    const resp = await apiGetJSONP("get");
+    const remoteItems = Array.isArray(resp?.items) ? resp.items : [];
+    const meta = resp?.meta || { updatedAt: 0 };
+
+    listaItems = dedupNormalize(remoteItems);
+    remoteMeta = { updatedAt: Number(meta.updatedAt || 0) };
+    saveCache(listaItems, remoteMeta);
+    render();
+
+    setSync("ok", "Listo ✅");
+    if (showToast) toast("Lista actualizada", "ok", "Se cargó desde Drive.");
+  } catch {
+    setSync("offline", "No se pudo cargar — usando cache");
+    if (showToast) toast("No se pudo cargar", "warn", "Mostrando la última versión guardada.");
+  }
+}
+
+// =====================
+// Eventos
+// =====================
+seccionItems.addEventListener("click", (event) => {
+  if (event.target.classList.contains("eliminar-item")) {
+    const index = parseInt(event.target.getAttribute("data-index"), 10);
+    eliminarElemento(index);
+  }
+});
+
+button1.addEventListener("click", () => {
+  const textoItem = input1.value;
+  if (normalizarTexto(textoItem) !== "") {
+    agregarElemento(textoItem, false);
+    input1.value = "";
+    input1.focus();
+  }
+});
+
+input1.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    button1.click();
+  }
+});
+
+// Copiar
+buttonCopiar.addEventListener("click", () => {
+  if (listaItems.length === 0) {
+    toast("No hay items para copiar", "warn");
+    return;
+  }
+  const texto = listaItems.map(item => item.texto).join("\n");
+  navigator.clipboard.writeText(texto)
+    .then(() => toast("Copiado ✅", "ok", "Lista al portapapeles"))
+    .catch(() => toast("No se pudo copiar", "err"));
+});
+
+// Importar
+buttonImportar.addEventListener("click", () => {
+  const textoPegado = textareaImportar.value;
+
+  if (textoPegado.trim() === "") {
+    toast("Pegá primero una lista 😉", "warn");
+    return;
+  }
+
+  let candidatos = textoPegado.includes("\n")
+    ? textoPegado.split("\n")
+    : textoPegado.split(",");
+
+  candidatos = candidatos.map(t => t.trim()).filter(t => t !== "");
+
+  let agregados = 0;
+  for (const t of candidatos) {
+    const before = listaItems.length;
+    agregarElemento(t, false);
+    if (listaItems.length > before) agregados++;
+  }
+
+  textareaImportar.value = "";
+  toast("Importado ✅", "ok", `${agregados} items agregados`);
+});
+
+window.addEventListener("online", () => {
+  toast("Volvió la conexión", "ok", "Sincronizando…");
+  trySyncPending();
+});
+
+window.addEventListener("offline", () => {
+  setSync("offline", "Sin conexión — Guardado local");
+  toast("Sin conexión", "warn", "Podés seguir usando la lista.");
+});
+
+// =====================
+// INIT
+// =====================
+window.addEventListener("load", async () => {
+  input1.focus();
+
+  // 1) cache instantáneo
+  const cached = loadCache();
+  if (cached?.items) {
+    listaItems = dedupNormalize(cached.items);
+    remoteMeta = cached.meta?.updatedAt ? { updatedAt: cached.meta.updatedAt } : { updatedAt: 0 };
+    render();
+    setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando… (cache)" : "Sin conexión — usando cache");
+  } else {
+    setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando…" : "Sin conexión");
+  }
+
+  // 2) pending
+  const pending = loadPending();
+  if (pending?.items) {
+    listaItems = dedupNormalize(pending.items);
+    render();
+    if (!isOnline()) {
+      setSync("offline", "Sin conexión — Cambios pendientes");
+    } else {
+      await trySyncPending();
+    }
+    return;
+  }
+
+  // 3) remoto
+  await refreshFromRemote(false);
+  if (!cached?.items) toast("Lista lista ✅", "ok", "Cargada desde Drive");
+});
