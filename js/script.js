@@ -51,7 +51,7 @@ buscadorWrap.style.display = "flex";
 buscadorWrap.style.alignItems = "center";
 buscadorWrap.style.gap = "10px";
 buscadorWrap.style.marginLeft = "10px";
-buscadorWrap.style.flex = "1"; 
+buscadorWrap.style.flex = "1";
 
 seccionLista.appendChild(buscadorWrap);
 
@@ -74,18 +74,18 @@ buscadorWrap.appendChild(limpiarBusquedaBtn);
 
 // Mostrar / ocultar la X según haya texto
 buscador.addEventListener("input", () => {
-  filtroBusqueda = (buscador.value || "").toLowerCase().trim();
-  limpiarBusquedaBtn.style.display = buscador.value ? "inline-block" : "none";
-  render();
+    filtroBusqueda = (buscador.value || "").toLowerCase().trim();
+    limpiarBusquedaBtn.style.display = buscador.value ? "inline-block" : "none";
+    render();
 });
 
 // Acción de limpiar
 limpiarBusquedaBtn.addEventListener("click", () => {
-  buscador.value = "";
-  filtroBusqueda = "";
-  limpiarBusquedaBtn.style.display = "none";
-  buscador.focus();
-  render();
+    buscador.value = "";
+    filtroBusqueda = "";
+    limpiarBusquedaBtn.style.display = "none";
+    buscador.focus();
+    render();
 });
 
 const seccionItems = document.createElement("section");
@@ -132,6 +132,9 @@ const toastRoot = document.getElementById("toast-root");
 // =====================
 let listaItems = [];
 let remoteMeta = { updatedAt: 0 };
+
+// ===== Control de cambios locales (evita pisadas por GET de verificación) =====
+let localVersion = 0;        // sube cada vez que el usuario cambia algo
 
 // =====================
 // UI helpers
@@ -311,9 +314,11 @@ function render() {
         tick.addEventListener("change", () => {
             item.completado = tick.checked;
             listaItems = dedupNormalize(listaItems);
+            localVersion++;                 // 👈 nuevo
             render();
             scheduleSave("Cambio de estado");
         });
+
 
         const listItem = document.createElement("p");
         listItem.innerText = item.texto;
@@ -346,8 +351,10 @@ function agregarElemento(texto, completado = false) {
 
     listaItems.push({ texto: t, completado: !!completado });
     listaItems = dedupNormalize(listaItems);
+    localVersion++;                 // 👈 nuevo
     render();
     scheduleSave("Item agregado");
+
 }
 
 function eliminarElemento(index) {
@@ -358,8 +365,10 @@ function eliminarElemento(index) {
     if (!ok) return;
 
     listaItems.splice(index, 1);
+    localVersion++;                 // 👈 nuevo
     render();
     scheduleSave("Item eliminado");
+
 }
 
 // =====================
@@ -386,6 +395,8 @@ function scheduleSave(reason = "") {
         saving = true;
 
         try {
+            const startedVersion = localVersion; // 👈 capturo versión al iniciar este guardado
+
             await apiSet(listaItems);
             setPending(listaItems);
 
@@ -394,6 +405,24 @@ function scheduleSave(reason = "") {
             const remoteItems = Array.isArray(resp?.items) ? resp.items : [];
             const meta = resp?.meta || { updatedAt: 0 };
 
+            // ✅ Si hubo cambios nuevos mientras guardábamos, NO pisar el estado local
+            if (localVersion !== startedVersion) {
+                remoteMeta = { updatedAt: Number(meta.updatedAt || 0) };
+                saveCache(listaItems, remoteMeta);
+
+                // dejamos pendiente lo más nuevo, y el debounce va a disparar otro save
+                setPending(listaItems);
+
+                // seguimos mostrando "guardando" porque aún falta persistir lo último
+                setSync("saving", "Guardando…");
+
+                // reintentar guardar la última versión (sin toast)
+                saving = false;
+                scheduleSave("");
+                return; // 👈 importantísimo: no ejecutar lo de abajo
+            }
+
+            // ✅ Si nadie cambió nada durante el guardado, aplicar remoto es seguro
             listaItems = dedupNormalize(remoteItems);
             remoteMeta = { updatedAt: Number(meta.updatedAt || 0) };
             saveCache(listaItems, remoteMeta);
