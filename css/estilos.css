@@ -250,4 +250,72 @@ button:active { background: #4d4d4d; transform: scale(0.995); }
   .utilidades { flex-direction: column; }
   .items { padding: 0.5rem 0rem 0.6rem 0rem; }
   #toast-root { right: 12px; bottom: 12px; }
+
+    /* ===== Mobile: 3 líneas prolijas ===== */
+
+  /* 1) Label e input arriba */
+  .agregarItem label {
+    flex: 0 0 auto;
+  }
+
+  .agregarItem input[type="text"] {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* 2) Botón Agregar en su propia línea */
+  .agregarItem > button {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+
+  /* 3) Buscador (div wrapper) en su propia línea */
+  .agregarItem > div {
+    flex: 0 0 100%;
+    width: 100%;
+    margin-left: 0 !important;
+    margin-top: 10px;
+  }
+
+  /* Que el input del buscador use todo el ancho disponible */
+  .agregarItem > div input {
+    width: 100%;
+    min-width: 0;
+  }
+
+}
+
+/* ====== Tablet (evita que se rompa la fila) ====== */
+@media (min-width: 601px) and (max-width: 900px) {
+  .agregarItem {
+    flex-wrap: wrap;           /* permite bajar a otra línea */
+    align-items: flex-start;
+  }
+
+  /* label + input de agregar: que ocupen fila bien */
+  .agregarItem label {
+    flex: 0 0 auto;
+  }
+
+  .agregarItem input[type="text"] {
+    flex: 1 1 260px;
+    min-width: 220px;
+  }
+
+  /* botón Agregar: no se aplasta */
+  .agregarItem button {
+    flex: 0 0 auto;
+  }
+
+  /* Buscador + X: que ocupe TODA la fila abajo */
+  .agregarItem > div {
+    flex: 1 1 100%;
+    margin-left: 0 !important;   /* anula el margin-left que pusimos inline */
+    margin-top: 10px;
+  }
+
+  /* buscador más grande */
+  .agregarItem > div input {
+    min-width: 0;                /* importante para que no “explote” */
+  }
 }

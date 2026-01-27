@@ -45,34 +45,38 @@ const button1 = document.createElement("button");
 button1.innerText = "Agregar";
 seccionLista.appendChild(button1);
 
-// ===== BUSCADOR =====
+// ===== BUSCADOR (input + X agrupados) =====
+const buscadorWrap = document.createElement("div");
+buscadorWrap.style.display = "flex";
+buscadorWrap.style.alignItems = "center";
+buscadorWrap.style.gap = "10px";
+buscadorWrap.style.marginLeft = "10px";
+buscadorWrap.style.flex = "1"; 
+
+seccionLista.appendChild(buscadorWrap);
+
 const buscador = document.createElement("input");
 buscador.type = "text";
 buscador.placeholder = "Buscar item...";
-buscador.style.marginLeft = "10px";
-buscador.style.maxWidth = "260px";
-buscador.style.flex = "0 0 260px";
-seccionLista.appendChild(buscador);
+buscador.style.flex = "1";
+buscadorWrap.appendChild(buscador);
 
 let filtroBusqueda = "";
-buscador.addEventListener("input", () => {
-    filtroBusqueda = (buscador.value || "").toLowerCase().trim();
-    render(); // refresca con filtro
-});
 
 // ===== BOTÓN LIMPIAR BUSCADOR (X) =====
 const limpiarBusquedaBtn = document.createElement("button");
 limpiarBusquedaBtn.innerText = "✕";
 limpiarBusquedaBtn.title = "Limpiar búsqueda";
-limpiarBusquedaBtn.style.marginLeft = "4px";
 limpiarBusquedaBtn.style.padding = "4px 10px";
 limpiarBusquedaBtn.style.cursor = "pointer";
 limpiarBusquedaBtn.style.display = "none"; // oculto por defecto
-seccionLista.appendChild(limpiarBusquedaBtn);
+buscadorWrap.appendChild(limpiarBusquedaBtn);
 
 // Mostrar / ocultar la X según haya texto
 buscador.addEventListener("input", () => {
+  filtroBusqueda = (buscador.value || "").toLowerCase().trim();
   limpiarBusquedaBtn.style.display = buscador.value ? "inline-block" : "none";
+  render();
 });
 
 // Acción de limpiar
