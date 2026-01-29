@@ -487,12 +487,62 @@ async function forceSwitchAccount() {
 // =====================
 // API client (POST JSON + token en body)
 // =====================
+
+// =====================
+// JSONP helper (evita CORS en GitHub Pages)
+// =====================
+function jsonpRequest(url, params = {}) {
+    return new Promise((resolve, reject) => {
+        const cbName = "__jsonp_cb_" + Math.random().toString(36).slice(2);
+        const qs = new URLSearchParams({ ...params, callback: cbName }).toString();
+
+        const script = document.createElement("script");
+        script.src = url + (url.includes("?") ? "&" : "?") + qs;
+        script.async = true;
+
+        const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error("jsonp_timeout"));
+        }, 15000);
+
+        function cleanup() {
+            clearTimeout(timeout);
+            delete window[cbName];
+            script.remove();
+        }
+
+        window[cbName] = (data) => {
+            cleanup();
+            resolve(data);
+        };
+
+        script.onerror = () => {
+            cleanup();
+            reject(new Error("jsonp_load_error"));
+        };
+
+        document.head.appendChild(script);
+    });
+}
+
 async function apiCall(mode, payload = {}, opts = {}) {
     const allowInteractive = !!opts.allowInteractive;
 
     // asegurar token
     const token = await ensureOAuthToken(allowInteractive, opts.interactivePrompt || "consent");
 
+    // ✅ GET por JSONP (no CORS)
+    // Soportamos: ping / whoami / get por JSONP
+    if (mode === "ping" || mode === "whoami" || mode === "get") {
+        const data = await jsonpRequest(API_BASE, {
+            mode,
+            access_token: token
+        });
+        return data || {};
+    }
+
+    // ✅ set queda por POST (sin JSONP)
+    // (si POST vuelve a fallar por CORS en tu navegador, después lo pasamos a "set via jsonp" con payload compacto)
     const body = {
         mode,
         access_token: token,
@@ -511,36 +561,10 @@ async function apiCall(mode, payload = {}, opts = {}) {
         throw e;
     }
 
-
     const data = await r.json().catch(() => ({}));
-
-    // retry ante auth
-    if (data?.ok === false && (data?.error === "auth_required" || data?.error === "wrong_audience" || data?.error === "missing_scope")) {
-        // intento refresh silent una vez
-        try {
-            await ensureOAuthToken(false);
-            const r2 = await fetch(API_BASE, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ mode, access_token: oauthAccessToken, ...payload })
-            });
-            return await r2.json().catch(() => ({}));
-        } catch {
-            // si se permite popup, reintento interactivo
-            if (allowInteractive) {
-                await ensureOAuthToken(true, "consent");
-                const r3 = await fetch(API_BASE, {
-                    method: "POST",
-                    headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify({ mode, access_token: oauthAccessToken, ...payload })
-                });
-                return await r3.json().catch(() => ({}));
-            }
-        }
-    }
-
     return data;
 }
+
 
 async function verifyBackendAccessOrThrow(allowInteractive) {
     const data = await apiCall("whoami", {}, { allowInteractive });
