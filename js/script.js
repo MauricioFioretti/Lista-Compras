@@ -578,7 +578,6 @@ async function verifyBackendAccessOrThrow(allowInteractive) {
     return data;
 }
 
-
 // =====================
 // Render
 // =====================
