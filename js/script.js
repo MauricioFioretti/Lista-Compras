@@ -499,11 +499,18 @@ async function apiCall(mode, payload = {}, opts = {}) {
         ...payload
     };
 
-    const r = await fetch(API_BASE, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" }, // evita preflight
-        body: JSON.stringify(body)
-    });
+    let r;
+    try {
+        r = await fetch(API_BASE, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" }, // evita preflight
+            body: JSON.stringify(body)
+        });
+    } catch (e) {
+        console.error("FETCH FAILED (CORS?):", e);
+        throw e;
+    }
+
 
     const data = await r.json().catch(() => ({}));
 
@@ -982,6 +989,7 @@ btnConnect.addEventListener("click", async () => {
     btnRefresh.style.display = "none";
     await refreshFromRemote(true);
   } catch (e) {
+    console.error("CONNECT ERROR:", e);
     setSync("offline", "Necesita Conectar");
     btnRefresh.style.display = "inline-block";
     toast("No se pudo conectar", "err", "Revisá permisos / usuario autorizado.");
