@@ -565,10 +565,16 @@ async function apiCall(mode, payload = {}, opts = {}) {
     return data;
 }
 
-
 async function verifyBackendAccessOrThrow(allowInteractive) {
     const data = await apiCall("whoami", {}, { allowInteractive });
-    if (!data?.ok) throw new Error(data?.error || "no_access");
+
+    if (!data?.ok) {
+        // ✅ Esto es CLAVE: ahora vas a ver el detail real en consola
+        console.error("WHOAMI FAIL (backend):", data);
+        const msg = (data?.error || "no_access") + (data?.detail ? ` | ${data.detail}` : "");
+        throw new Error(msg);
+    }
+
     return data;
 }
 
