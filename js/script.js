@@ -7,7 +7,7 @@ const API_BASE = "https://script.google.com/macros/s/AKfycby7g9yrzm8_2j0HA0P2vLH
 // CONFIG OAUTH (GIS)
 // =====================
 // IMPORTANTE: este Client ID es del proyecto NUEVO de "Lista Compras"
-const OAUTH_CLIENT_ID = "PONER_ACA_TU_CLIENT_ID.apps.googleusercontent.com";
+const OAUTH_CLIENT_ID = "125380828558-eitpoc7fjjrqa1rseaghpkf0sdfn8mve.apps.googleusercontent.com";
 
 // scopes: openid/email/profile + userinfo + drive.metadata.readonly (requerido por backend)
 const OAUTH_SCOPES = [
