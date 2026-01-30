@@ -197,6 +197,44 @@ let oauthAccessToken = "";
 let oauthExpiresAt = 0;
 
 // =====================
+// DEBUG / LOGS
+// =====================
+const DEBUG_SYNC = true;
+
+function dbg(...args) {
+  if (!DEBUG_SYNC) return;
+  console.log("[SYNC]", ...args);
+}
+function dbgWarn(...args) {
+  if (!DEBUG_SYNC) return;
+  console.warn("[SYNC]", ...args);
+}
+function dbgErr(...args) {
+  if (!DEBUG_SYNC) return;
+  console.error("[SYNC]", ...args);
+}
+
+// =====================
+// FORZAR EXPIRACIÓN (para probar auto-reconexión)
+// =====================
+function __expireTokenNow(hard = true) {
+  dbgWarn("__expireTokenNow() -> forzando token inválido", { hard });
+
+  // invalida runtime
+  oauthExpiresAt = 0;
+
+  // modo hard: invalida también lo guardado, así NO puede “revivir” del storage
+  if (hard) {
+    try { localStorage.setItem(LS_OAUTH, JSON.stringify({ access_token: oauthAccessToken || "", expires_at: 0 })); } catch {}
+    // si querés simular el caso extremo:
+    // clearStoredOAuth(); oauthAccessToken = "";
+  }
+}
+window.__expireTokenNow = __expireTokenNow;
+
+
+
+// =====================
 // Tombstones / merge helpers
 // =====================
 function loadTombstones() {
@@ -460,16 +498,18 @@ async function ensureOAuthToken(allowInteractive, interactivePrompt = "consent")
     // 2) si no es interactivo y no tengo hint => NO llamar GIS
     const hintEmail = loadStoredOAuthEmail();
     if (!allowInteractive && !hintEmail) {
-        throw new Error("auth_required");
+        throw new Error("auth_required_no_hint");
     }
 
     // 3) silent real
     try {
         await requestAccessToken({ prompt: "", hint: hintEmail || undefined });
         return oauthAccessToken;
-    } catch {
-        if (!allowInteractive) throw new Error("auth_required");
+    } catch (e) {
+        dbgWarn("ensureOAuthToken(silent) falló:", e?.message || e);
+        if (!allowInteractive) throw e; // ⚠️ devolvemos el error real
     }
+
 
     // 4) interactivo
     await requestAccessToken({ prompt: interactivePrompt, hint: hintEmail || undefined });
@@ -554,6 +594,9 @@ async function apiCall(mode, payload = {}, opts = {}) {
   // 1) asegurar token
   let token = await ensureOAuthToken(allowInteractive, opts.interactivePrompt || "consent");
 
+  dbg("apiCall:", { mode, allowInteractive, hasToken: !!token });
+
+
   // helper: si backend dice missing_scope/auth_required => forzar consent y reintentar
   async function retryWithConsentIfNeeded(resp) {
     if (resp?.ok) return resp;
@@ -581,6 +624,7 @@ async function apiCall(mode, payload = {}, opts = {}) {
   // 2) GET por JSONP (sin CORS)
   if (mode === "ping" || mode === "whoami" || mode === "get") {
     const data = await jsonpRequest(API_BASE, { mode, access_token: token });
+    dbg("apiCall GET resp:", mode, data);
     return await retryWithConsentIfNeeded(data || {});
   }
 
@@ -592,6 +636,7 @@ async function apiCall(mode, payload = {}, opts = {}) {
       expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
       items_b64: b64UrlEncodeUtf8_(JSON.stringify(payload.items || []))
     });
+    dbg("apiCall SET resp:", data);
     return await retryWithConsentIfNeeded(data || {});
   }
 
@@ -737,8 +782,21 @@ function scheduleRetry(label = "") {
 
   // no reintentar si no hay condiciones mínimas
   if (!isOnline()) return;
-  if (!isTokenValid()) return;
   if (saving) return;
+
+  // intento silencioso: si logra token, buenísimo; si no, frenamos el retry
+  if (!isTokenValid()) {
+    try {
+      dbgWarn("scheduleRetry: token inválido -> intento ensureOAuthToken(false)");
+      await ensureOAuthToken(false);
+    } catch (e) {
+      dbgWarn("scheduleRetry: no pudo asegurar token silencioso:", e?.message || e);
+      return; // sin token no tiene sentido seguir reintentando
+    }
+  }
+
+  if (!isTokenValid()) return;
+
 
   retryTimer = setTimeout(async () => {
     retryTimer = null;
@@ -760,7 +818,7 @@ function scheduleRetry(label = "") {
 }
 
 
-function scheduleSave(reason = "") {
+async function scheduleSave(reason = "") {
   saveCache(listaItems, remoteMeta);
 
   if (!isOnline()) {
@@ -772,15 +830,25 @@ function scheduleSave(reason = "") {
   }
 
 
-  // si no hay token válido, no sync remoto (queda en pending)
+  // si no hay token válido, intentá renovar SILENCIOSO antes de rendirte
+  if (!isTokenValid()) {
+    try {
+      dbgWarn("scheduleSave: token inválido -> intento ensureOAuthToken(false)");
+      await ensureOAuthToken(false);
+    } catch (e) {
+      dbgWarn("scheduleSave: no pudo asegurar token silencioso:", e?.message || e);
+    }
+  }
+
+  // si sigue sin token válido, queda en pending
   if (!isTokenValid()) {
     setSync("offline", "Necesita Conectar");
     setPending(listaItems);
     btnRefresh.style.display = "inline-block";
     if (reason) toast("Guardado local", "warn", "Conectá para sincronizar.");
-    // cuando el usuario conecte, trySyncPending se ejecuta; mientras tanto no reintentamos
     return;
   }
+
 
 
   setSync("saving", "Guardando…");
@@ -848,7 +916,9 @@ function scheduleSave(reason = "") {
       setSync("ok", "Guardado ✅");
       btnRefresh.style.display = "none";
       if (reason) toast("Guardado ✅", "ok", reason);
-    } catch {
+    } catch (e) {
+      dbgErr("scheduleSave ERROR:", e);
+
       setPending(listaItems);
       setSync("offline", "No se pudo guardar — Queda en cola");
       btnRefresh.style.display = "inline-block";
@@ -868,12 +938,21 @@ async function trySyncPending() {
     return;
   }
 
-  // si no hay token, no sync
+  // Intento silencioso de renovar/obtener token (SIN popup)
+  try {
+    await ensureOAuthToken(false);
+  } catch (e) {
+    dbgWarn("trySyncPending: no pudo asegurar token silencioso:", e?.message || e);
+  }
+
+  // si sigue sin token válido, no sync
   if (!isTokenValid()) {
+    dbgWarn("trySyncPending: sin token válido -> necesita conectar");
     setSync("offline", "Necesita Conectar");
     btnRefresh.style.display = "inline-block";
     return;
   }
+
 
   const pending = loadPending();
   if (!pending?.items) {
@@ -920,7 +999,9 @@ async function trySyncPending() {
     setSync("ok", "Sincronizado ✅");
     btnRefresh.style.display = "none";
     toast("Sincronizado ✅", "ok", "Se aplicaron cambios pendientes.");
-  } catch {
+    } catch (e) {
+    dbgErr("trySyncPending ERROR:", e);
+
     setPending(listaItems);
     setSync("offline", "Sincronización pendiente");
     btnRefresh.style.display = "inline-block";
@@ -934,8 +1015,16 @@ async function refreshFromRemote(showToast = true) {
     return;
   }
 
-  // si no hay token válido, no tocar remoto
+  // Intento silencioso de renovar/obtener token (SIN popup)
+  try {
+    await ensureOAuthToken(false);
+  } catch (e) {
+    dbgWarn("refreshFromRemote: no pudo asegurar token silencioso:", e?.message || e);
+  }
+
+  // si sigue sin token válido, no tocar remoto
   if (!isTokenValid()) {
+    dbgWarn("refreshFromRemote: sin token válido -> necesita conectar");
     setSync("offline", "Necesita Conectar");
     btnRefresh.style.display = "inline-block";
     return;
@@ -1195,13 +1284,24 @@ window.addEventListener("load", async () => {
     }
 
 
-    // 3) remoto (solo si hay token válido)
-    if (isTokenValid()) {
-      await refreshFromRemote(false);
-      if (!cached?.items) toast("Lista lista ✅", "ok", "Cargada desde Drive");
+    // 3) Auto-sync al cargar (SIN popup)
+    // - Si hay token/email guardado, intentamos reconectar silencioso
+    // - Si no se puede, queda "Necesita Conectar"
+    if (isOnline()) {
+      const emailHint = loadStoredOAuthEmail();
+      const stored = loadStoredOAuth();
+
+      dbg("INIT: online. emailHint=", emailHint, "hasStoredToken=", !!stored?.access_token);
+
+      if (emailHint || (stored?.access_token && stored?.expires_at)) {
+        await reconnectAndRefresh(); // usa ensureOAuthToken(false) -> no popup
+      } else {
+        setSync("offline", "Necesita Conectar");
+        btnRefresh.style.display = "inline-block";
+      }
     } else {
-      setSync("offline", isOnline() ? "Necesita Conectar" : "Sin conexión");
-      btnRefresh.style.display = isOnline() ? "inline-block" : "none";
-      // mantenemos cache/pending y no hacemos popup solo
+      setSync("offline", "Sin conexión");
+      btnRefresh.style.display = "none";
     }
+
 });
