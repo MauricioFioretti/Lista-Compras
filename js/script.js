@@ -772,7 +772,7 @@ function resetRetry() {
   }
 }
 
-function scheduleRetry(label = "") {
+async function scheduleRetry(label = "") {
   // si ya hay un retry programado, no duplicar
   if (retryTimer) return;
 
