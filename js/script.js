@@ -712,6 +712,54 @@ function eliminarElemento(index) {
 let saveTimer = null;
 let saving = false;
 
+// =====================
+// Auto-retry sync pending (backoff)
+// =====================
+let retryTimer = null;
+let retryDelayMs = 2000;         // arranca en 2s
+const RETRY_MAX_MS = 60000;      // tope 60s
+
+function resetRetry() {
+  retryDelayMs = 2000;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
+function scheduleRetry(label = "") {
+  // si ya hay un retry programado, no duplicar
+  if (retryTimer) return;
+
+  // si no hay pending real, no programes nada
+  const p = loadPending();
+  if (!p?.items) return;
+
+  // no reintentar si no hay condiciones mínimas
+  if (!isOnline()) return;
+  if (!isTokenValid()) return;
+  if (saving) return;
+
+  retryTimer = setTimeout(async () => {
+    retryTimer = null;
+    try {
+      await trySyncPending();
+      // si trySyncPending sincronizó, ella misma va a limpiar pending y setear OK
+      // si NO sincronizó, dejamos que scheduleRetry vuelva a programar
+      if (loadPending()?.items) {
+        retryDelayMs = Math.min(Math.floor(retryDelayMs * 1.7), RETRY_MAX_MS);
+        scheduleRetry("retry_loop");
+      } else {
+        resetRetry();
+      }
+    } catch {
+      retryDelayMs = Math.min(Math.floor(retryDelayMs * 1.7), RETRY_MAX_MS);
+      scheduleRetry("retry_loop_err");
+    }
+  }, retryDelayMs);
+}
+
+
 function scheduleSave(reason = "") {
   saveCache(listaItems, remoteMeta);
 
@@ -719,8 +767,10 @@ function scheduleSave(reason = "") {
     setSync("offline", "Sin conexión — Guardado local");
     setPending(listaItems);
     if (reason) toast("Guardado local (offline)", "warn", "Se sincroniza cuando vuelva internet.");
+    // reintento queda para cuando vuelva online (evento online ya llama trySyncPending)
     return;
   }
+
 
   // si no hay token válido, no sync remoto (queda en pending)
   if (!isTokenValid()) {
@@ -728,8 +778,10 @@ function scheduleSave(reason = "") {
     setPending(listaItems);
     btnRefresh.style.display = "inline-block";
     if (reason) toast("Guardado local", "warn", "Conectá para sincronizar.");
+    // cuando el usuario conecte, trySyncPending se ejecuta; mientras tanto no reintentamos
     return;
   }
+
 
   setSync("saving", "Guardando…");
   clearTimeout(saveTimer);
@@ -801,9 +853,12 @@ function scheduleSave(reason = "") {
       setSync("offline", "No se pudo guardar — Queda en cola");
       btnRefresh.style.display = "inline-block";
       toast("No se pudo guardar", "err", "Quedó pendiente, se reintenta solo.");
+      // ✅ reintento automático (si hay token + online)
+      scheduleRetry("save_failed");
     } finally {
       saving = false;
     }
+
   }, 650);
 }
 
@@ -983,8 +1038,12 @@ buttonImportar.addEventListener("click", () => {
 
 window.addEventListener("online", () => {
     toast("Volvió la conexión", "ok", "Sincronizando…");
-    trySyncPending();
+    trySyncPending().finally(() => {
+      // ✅ si sigue pendiente, programar reintentos
+      scheduleRetry("online_event");
+    });
 });
+
 
 window.addEventListener("offline", () => {
     setSync("offline", "Sin conexión — Guardado local");
@@ -1020,6 +1079,9 @@ async function reconnectAndRefresh() {
     if (email) saveStoredOAuthEmail(email);
     setAccountUI(email);
     await refreshFromRemote(true);
+        // ✅ si hay pendientes, reintentar automático
+    scheduleRetry("reconnect_refresh");
+
   } catch {
     setSync("offline", "Necesita Conectar");
     btnRefresh.style.display = "inline-block";
@@ -1126,9 +1188,12 @@ window.addEventListener("load", async () => {
             setSync("offline", "Sin conexión — Cambios pendientes");
         } else {
             await trySyncPending();
+            // ✅ si quedó pending, reintentar solo
+            scheduleRetry("load_pending");
         }
         return;
     }
+
 
     // 3) remoto (solo si hay token válido)
     if (isTokenValid()) {
