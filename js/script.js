@@ -197,6 +197,15 @@ let oauthAccessToken = "";
 let oauthExpiresAt = 0;
 
 // =====================
+// Connection lock (evita reconexiones pisadas)
+// =====================
+let connectInFlight = null; // Promise | null
+
+function isConnectBusy() {
+  return !!connectInFlight;
+}
+
+// =====================
 // DEBUG / LOGS
 // =====================
 const DEBUG_SYNC = true;
@@ -460,7 +469,22 @@ function requestAccessToken({ prompt, hint }) {
         if (!tokenClient) return reject(new Error("OAuth no inicializado"));
 
         tokenClient.callback = (resp) => {
-            if (!resp || resp.error) return reject(new Error(resp?.error || "oauth_error"));
+            // si el usuario cerró/canceló, lo tratamos como cancelación (no “romper sesión”)
+            if (!resp || resp.error) {
+                const err = (resp?.error || "oauth_error").toString();
+
+                // cancelaciones típicas de GIS
+                const isCanceled =
+                err.includes("popup_closed") ||
+                err.includes("access_denied") ||
+                err.includes("user_cancel") ||
+                err.includes("interaction_required");
+
+                const e = new Error(err);
+                e.isCanceled = isCanceled;
+                return reject(e);
+            }
+
             const accessToken = resp.access_token;
             const expiresIn = Number(resp.expires_in || 3600);
             const expiresAt = Date.now() + (expiresIn * 1000);
@@ -1072,18 +1096,21 @@ async function trySyncPending() {
 }
 
 
-async function refreshFromRemote(showToast = true) {
+async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: false }) {
   if (!isOnline()) {
     setSync("offline", "Sin conexión — usando cache");
     return;
   }
 
   // Intento silencioso de renovar/obtener token (SIN popup)
-  try {
-    await ensureOAuthToken(false);
-  } catch (e) {
-    dbgWarn("refreshFromRemote: no pudo asegurar token silencioso:", e?.message || e);
+  if (!opts?.skipEnsureToken) {
+    try {
+      await ensureOAuthToken(false);
+    } catch (e) {
+      dbgWarn("refreshFromRemote: no pudo asegurar token silencioso:", e?.message || e);
+    }
   }
+
 
   // si sigue sin token válido, no tocar remoto
   if (!isTokenValid()) {
@@ -1222,53 +1249,101 @@ function setAccountUI(email) {
   btnConnect.dataset.mode = "switch";
 }
 
-async function reconnectAndRefresh() {
-  try {
-    setSync("saving", "Conectando…");
-    await ensureOAuthToken(false);
-    const who = await verifyBackendAccessOrThrow(false);
-    const email = (who?.email || "").toString();
-    if (email) saveStoredOAuthEmail(email);
-    setAccountUI(email);
-    await refreshFromRemote(true);
-        // ✅ si hay pendientes, reintentar automático
-    scheduleRetry("reconnect_refresh");
+// =====================
+// Conectar (único flujo, con lock)
+// =====================
+async function runConnectFlow({ interactive, prompt } = { interactive: false, prompt: "consent" }) {
+  // si ya hay un connect corriendo, reusamos el mismo (evita carreras)
+  if (connectInFlight) return connectInFlight;
 
-  } catch {
-    setSync("offline", "Necesita Conectar");
-    btnRefresh.style.display = "inline-block";
-  }
+  connectInFlight = (async () => {
+    try {
+      setSync("saving", interactive ? "Conectando…" : "Reconectando…");
+
+      // 1) token
+      try {
+        await ensureOAuthToken(!!interactive, prompt || "consent");
+      } catch (e) {
+        // Si el usuario canceló el popup => NO romper todo, volvemos a estado estable
+        if (e?.isCanceled) {
+          dbgWarn("Connect cancelado por el usuario:", e.message);
+          // dejamos UI acorde al estado real actual
+          if (isTokenValid()) {
+            setSync("ok", "Listo ✅");
+          } else {
+            setSync("offline", "Necesita Conectar");
+            btnRefresh.style.display = "inline-block";
+          }
+          return { ok: false, canceled: true };
+        }
+        throw e;
+      }
+
+      // 2) whoami (valida backend)
+      const who = await verifyBackendAccessOrThrow(!!interactive);
+      const email = (who?.email || "").toString();
+      if (email) saveStoredOAuthEmail(email);
+      setAccountUI(email);
+
+      // 3) refrescar datos
+      btnRefresh.style.display = "none";
+      await refreshFromRemote(true, { skipEnsureToken: true });
+
+      // 4) si hay pending, que reintente
+      scheduleRetry("runConnectFlow");
+
+      return { ok: true };
+    } catch (e) {
+      dbgErr("runConnectFlow ERROR:", e);
+
+      setSync("offline", "Necesita Conectar");
+      btnRefresh.style.display = "inline-block";
+      return { ok: false, error: e?.message || String(e) };
+    } finally {
+      // liberamos lock
+      connectInFlight = null;
+    }
+  })();
+
+  return connectInFlight;
+}
+
+
+async function reconnectAndRefresh() {
+  // reconexión NO interactiva (sin popup)
+  return await runConnectFlow({ interactive: false, prompt: "" });
 }
 
 btnConnect.addEventListener("click", async () => {
-  try {
-    setSync("saving", "Conectando…");
+  // si ya hay conexión corriendo, no duplicar
+  if (isConnectBusy()) {
+    dbgWarn("btnConnect: connectInFlight activo, ignorando click");
+    return;
+  }
 
-    if (btnConnect.dataset.mode === "switch") {
-      await forceSwitchAccount();
-    } else {
-      await ensureOAuthToken(true, "consent");
-    }
+  // Si estaba en modo switch, primero limpiamos storage y pedimos select_account
+  if (btnConnect.dataset.mode === "switch") {
+    clearStoredOAuth();
+    clearStoredOAuthEmail();
+    oauthAccessToken = "";
+    oauthExpiresAt = 0;
 
-    // email para hint UI
-    let email = "";
-    try {
-      email = await fetchUserEmailFromToken(oauthAccessToken);
-    } catch {}
-    if (email) saveStoredOAuthEmail(email);
+    const res = await runConnectFlow({ interactive: true, prompt: "select_account" });
 
-    // valida acceso backend (audience + scope)
-    const who = await verifyBackendAccessOrThrow(true);
-    const finalEmail = (who?.email || email || "").toString();
-    if (finalEmail) saveStoredOAuthEmail(finalEmail);
+    // si canceló, no toques nada más
+    if (res?.canceled) return;
 
-    setAccountUI(finalEmail);
-    btnRefresh.style.display = "none";
-    await refreshFromRemote(true);
-  } catch (e) {
-    console.error("CONNECT ERROR:", e);
-    setSync("offline", "Necesita Conectar");
-    btnRefresh.style.display = "inline-block";
+    if (!res?.ok) toast("No se pudo cambiar cuenta", "err", "Intentá de nuevo.");
+    return;
+  }
+
+  // Modo connect normal
+  const res = await runConnectFlow({ interactive: true, prompt: "consent" });
+
+  // si canceló, listo
+  if (res?.canceled) return;
+
+  if (!res?.ok) {
     toast("No se pudo conectar", "err", "Revisá permisos / usuario autorizado.");
   }
 });
@@ -1281,17 +1356,26 @@ btnRefresh.addEventListener("click", async () => {
 setInterval(async () => {
   try {
     if (document.visibilityState !== "visible") return;
+    if (isConnectBusy()) return;
     if (!oauthAccessToken) return;
-    if (Date.now() < (oauthExpiresAt - 120_000)) return; // faltan más de 2 min
+
+    // si falta poco para expirar, intento silencioso
+    if (Date.now() < (oauthExpiresAt - 120_000)) return;
     await ensureOAuthToken(false);
+
+    // si se renovó bien y estábamos “Necesita Conectar”, refrescamos sin popup
+    if (isTokenValid() && syncPill.querySelector(".sync-text")?.textContent?.includes("Necesita Conectar")) {
+      await reconnectAndRefresh();
+    }
   } catch {}
 }, 20_000);
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") {
-    if (syncPill.querySelector(".sync-text")?.textContent?.includes("Necesita Conectar")) {
-      reconnectAndRefresh();
-    }
+  if (document.visibilityState !== "visible") return;
+  if (isConnectBusy()) return;
+
+  if (syncPill.querySelector(".sync-text")?.textContent?.includes("Necesita Conectar")) {
+    reconnectAndRefresh();
   }
 });
 
