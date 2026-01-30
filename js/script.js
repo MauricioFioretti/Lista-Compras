@@ -491,6 +491,29 @@ async function forceSwitchAccount() {
 // =====================
 // JSONP helper (evita CORS en GitHub Pages)
 // =====================
+
+// =====================
+// JSONP helper (evita CORS en GitHub Pages)
+// =====================
+
+// ===== Base64 URL-safe helpers (para mandar items por GET sin romper query) =====
+function b64UrlEncodeUtf8_(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  bytes.forEach(b => (bin += String.fromCharCode(b)));
+  const b64 = btoa(bin);
+  return b64.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function b64UrlDecodeUtf8_(b64url) {
+  let b64 = (b64url || "").replaceAll("-", "+").replaceAll("_", "/");
+  while (b64.length % 4) b64 += "=";
+  const bin = atob(b64);
+  const bytes = new Uint8Array([...bin].map(ch => ch.charCodeAt(0)));
+  return new TextDecoder().decode(bytes);
+}
+
+
 function jsonpRequest(url, params = {}) {
     return new Promise((resolve, reject) => {
         const cbName = "__jsonp_cb_" + Math.random().toString(36).slice(2);
@@ -526,43 +549,54 @@ function jsonpRequest(url, params = {}) {
 }
 
 async function apiCall(mode, payload = {}, opts = {}) {
-    const allowInteractive = !!opts.allowInteractive;
+  const allowInteractive = !!opts.allowInteractive;
 
-    // asegurar token
-    const token = await ensureOAuthToken(allowInteractive, opts.interactivePrompt || "consent");
+  // 1) asegurar token
+  let token = await ensureOAuthToken(allowInteractive, opts.interactivePrompt || "consent");
 
-    // ✅ GET por JSONP (no CORS)
-    // Soportamos: ping / whoami / get por JSONP
-    if (mode === "ping" || mode === "whoami" || mode === "get") {
-        const data = await jsonpRequest(API_BASE, {
-            mode,
-            access_token: token
-        });
-        return data || {};
-    }
+  // helper: si backend dice missing_scope/auth_required => forzar consent y reintentar
+  async function retryWithConsentIfNeeded(resp) {
+    if (resp?.ok) return resp;
 
-    // ✅ set queda por POST (sin JSONP)
-    // (si POST vuelve a fallar por CORS en tu navegador, después lo pasamos a "set via jsonp" con payload compacto)
-    const body = {
-        mode,
+    if (resp?.error === "missing_scope" || resp?.error === "auth_required") {
+      // fuerza consentimiento para que incluya el scope requerido
+      token = await ensureOAuthToken(true, "consent");
+
+      // reintento del mismo modo
+      if (mode === "ping" || mode === "whoami" || mode === "get") {
+        return await jsonpRequest(API_BASE, { mode, access_token: token });
+      }
+      // set via jsonp (GET) también
+      return await jsonpRequest(API_BASE, {
+        mode: "set",
         access_token: token,
-        ...payload
-    };
-
-    let r;
-    try {
-        r = await fetch(API_BASE, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" }, // evita preflight
-            body: JSON.stringify(body)
-        });
-    } catch (e) {
-        console.error("FETCH FAILED (CORS?):", e);
-        throw e;
+        expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
+        items_b64: b64UrlEncodeUtf8_(JSON.stringify(payload.items || []))
+      });
     }
 
-    const data = await r.json().catch(() => ({}));
-    return data;
+    return resp;
+  }
+
+  // 2) GET por JSONP (sin CORS)
+  if (mode === "ping" || mode === "whoami" || mode === "get") {
+    const data = await jsonpRequest(API_BASE, { mode, access_token: token });
+    return await retryWithConsentIfNeeded(data || {});
+  }
+
+  // 3) SET por JSONP (sin CORS) -> evitamos POST fetch
+  if (mode === "set") {
+    const data = await jsonpRequest(API_BASE, {
+      mode: "set",
+      access_token: token,
+      expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
+      items_b64: b64UrlEncodeUtf8_(JSON.stringify(payload.items || []))
+    });
+    return await retryWithConsentIfNeeded(data || {});
+  }
+
+  // fallback
+  return { ok: false, error: "bad_mode_client" };
 }
 
 async function verifyBackendAccessOrThrow(allowInteractive) {
