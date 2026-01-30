@@ -588,6 +588,36 @@ function jsonpRequest(url, params = {}) {
     });
 }
 
+// =====================
+// POST helper (para SET sin URL gigante)
+// - Content-Type: text/plain => evita preflight CORS
+// =====================
+async function postRequest(url, bodyObj = {}) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(bodyObj)
+  });
+
+  // Si el server no devuelve JSON válido, esto va a tirar.
+  const text = await r.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch { /* queda null */ }
+
+  if (!r.ok) {
+    const msg = (data?.error || "http_error") + (data?.detail ? ` | ${data.detail}` : "");
+    throw new Error(msg);
+  }
+
+  // Si no fue JSON, devolvemos algo explícito para debug
+  if (!data) {
+    throw new Error("bad_json_response");
+  }
+
+  return data;
+}
+
+
 async function apiCall(mode, payload = {}, opts = {}) {
   const allowInteractive = !!opts.allowInteractive;
 
@@ -609,13 +639,28 @@ async function apiCall(mode, payload = {}, opts = {}) {
       if (mode === "ping" || mode === "whoami" || mode === "get") {
         return await jsonpRequest(API_BASE, { mode, access_token: token });
       }
-      // set via jsonp (GET) también
-      return await jsonpRequest(API_BASE, {
-        mode: "set",
-        access_token: token,
-        expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
-        items_b64: b64UrlEncodeUtf8_(JSON.stringify(payload.items || []))
-      });
+// set: reintentar por POST (preferido)
+try {
+  return await postRequest(API_BASE, {
+    mode: "set",
+    access_token: token,
+    expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
+    items: payload.items || []
+  });
+} catch (e) {
+  // fallback JSONP solo si entra en URL
+  const itemsJson = JSON.stringify(payload.items || []);
+  const itemsB64 = b64UrlEncodeUtf8_(itemsJson);
+  if (itemsB64.length > 6000) throw e;
+
+  return await jsonpRequest(API_BASE, {
+    mode: "set",
+    access_token: token,
+    expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
+    items_b64: itemsB64
+  });
+}
+
     }
 
     return resp;
@@ -628,17 +673,43 @@ async function apiCall(mode, payload = {}, opts = {}) {
     return await retryWithConsentIfNeeded(data || {});
   }
 
-  // 3) SET por JSONP (sin CORS) -> evitamos POST fetch
-  if (mode === "set") {
+// 3) SET por POST (evita URL gigante de JSONP)
+if (mode === "set") {
+  // 3.1) Primero intentamos POST (lo correcto para payload grande)
+  try {
+    const data = await postRequest(API_BASE, {
+      mode: "set",
+      access_token: token,
+      expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
+      items: payload.items || []
+    });
+
+    dbg("apiCall SET resp (POST):", data);
+    return await retryWithConsentIfNeeded(data || {});
+  } catch (e) {
+    dbgWarn("SET via POST falló, fallback JSONP (solo si entra en URL):", e?.message || e);
+
+    // 3.2) Fallback JSONP SOLO si el payload es chico (para no romper por URL larga)
+    const itemsJson = JSON.stringify(payload.items || []);
+    const itemsB64 = b64UrlEncodeUtf8_(itemsJson);
+
+    // Umbral conservador. Si se pasa, mejor NO insistir con JSONP porque va a volver a fallar.
+    if (itemsB64.length > 6000) {
+      throw e; // deja el error real del POST (más útil que jsonp_load_error)
+    }
+
     const data = await jsonpRequest(API_BASE, {
       mode: "set",
       access_token: token,
       expectedUpdatedAt: payload.expectedUpdatedAt ?? 0,
-      items_b64: b64UrlEncodeUtf8_(JSON.stringify(payload.items || []))
+      items_b64: itemsB64
     });
-    dbg("apiCall SET resp:", data);
+
+    dbg("apiCall SET resp (JSONP fallback):", data);
     return await retryWithConsentIfNeeded(data || {});
   }
+}
+
 
   // fallback
   return { ok: false, error: "bad_mode_client" };
