@@ -430,8 +430,15 @@ function clearStoredOAuth() {
 }
 
 function loadStoredOAuthEmail() {
-    try { return (localStorage.getItem(LS_OAUTH_EMAIL) || "").toString() || ""; } catch { return ""; }
+  try {
+    return String(localStorage.getItem(LS_OAUTH_EMAIL) || "")
+      .trim()
+      .toLowerCase();
+  } catch {
+    return "";
+  }
 }
+
 function saveStoredOAuthEmail(email) {
     try { localStorage.setItem(LS_OAUTH_EMAIL, (email || "").toString()); } catch { }
 }
@@ -464,80 +471,107 @@ function initOAuth() {
 }
 
 // prompt: "" (silent), "consent", "select_account"
-function requestAccessToken({ prompt, hint }) {
-    return new Promise((resolve, reject) => {
-        if (!tokenClient) return reject(new Error("OAuth no inicializado"));
+function requestAccessToken({ prompt, hint } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) return reject(new Error("OAuth no inicializado"));
 
-        tokenClient.callback = (resp) => {
-            // si el usuario cerró/canceló, lo tratamos como cancelación (no “romper sesión”)
-            if (!resp || resp.error) {
-                const err = (resp?.error || "oauth_error").toString();
+    let done = false;
 
-                // cancelaciones típicas de GIS
-                const isCanceled =
-                err.includes("popup_closed") ||
-                err.includes("access_denied") ||
-                err.includes("user_cancel") ||
-                err.includes("interaction_required");
+    // ✅ Timeout anti-“cuelgue” (igual que tu Lista de Tareas)
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new Error("popup_timeout_or_closed"));
+    }, 45_000);
 
-                const e = new Error(err);
-                e.isCanceled = isCanceled;
-                return reject(e);
-            }
+    tokenClient.callback = (resp) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
 
-            const accessToken = resp.access_token;
-            const expiresIn = Number(resp.expires_in || 3600);
-            const expiresAt = Date.now() + (expiresIn * 1000);
+      if (!resp || resp.error) {
+        const err = String(resp?.error || "oauth_error");
+        const sub = String(resp?.error_subtype || "");
+        const msg = (err + (sub ? `:${sub}` : "")).toLowerCase();
 
-            oauthAccessToken = accessToken;
-            oauthExpiresAt = expiresAt;
-            saveStoredOAuth(accessToken, expiresAt);
+        // ✅ Normalizamos cancelaciones / interacciones requeridas
+        const e = new Error(err);
+        e.isCanceled =
+          msg.includes("popup_closed") ||
+          msg.includes("popup_closed_by_user") ||
+          msg.includes("access_denied") ||
+          msg.includes("user_cancel") ||
+          msg.includes("interaction_required");
 
-            resolve({ access_token: accessToken, expires_at: expiresAt });
-        };
+        return reject(e);
+      }
 
-        const req = { prompt: prompt ?? "" };
-        if (hint) req.hint = hint;
+      const accessToken = resp.access_token;
+      const expiresIn = Number(resp.expires_in || 3600);
+      const expiresAt = Date.now() + (expiresIn * 1000);
 
-        try {
-            tokenClient.requestAccessToken(req);
-        } catch (e) {
-            reject(e);
-        }
-    });
+      oauthAccessToken = accessToken;
+      oauthExpiresAt = expiresAt;
+      saveStoredOAuth(accessToken, expiresAt);
+
+      resolve({ access_token: accessToken, expires_at: expiresAt });
+    };
+
+    // ✅ Si prompt es undefined, no lo mandamos (más estable)
+    const req = {};
+    if (prompt !== undefined) req.prompt = prompt;
+    if (hint && String(hint).includes("@")) req.hint = hint;
+
+    try {
+      tokenClient.requestAccessToken(req);
+    } catch (e) {
+      clearTimeout(timer);
+      reject(e);
+    }
+  });
 }
 
 // allowInteractive=false => NO popup
-async function ensureOAuthToken(allowInteractive, interactivePrompt = "consent") {
-    if (isTokenValid()) return oauthAccessToken;
+async function ensureOAuthToken(allowInteractive = false, interactivePrompt = "consent") {
+  // 1) token en memoria
+  if (isTokenValid()) return oauthAccessToken;
 
-    // 1) intentar token guardado
-    const stored = loadStoredOAuth();
-    if (stored?.access_token && Date.now() < (stored.expires_at - 10_000)) {
-        oauthAccessToken = stored.access_token;
-        oauthExpiresAt = stored.expires_at;
-        return oauthAccessToken;
-    }
-
-    // 2) si no es interactivo y no tengo hint => NO llamar GIS
-    const hintEmail = loadStoredOAuthEmail();
-    if (!allowInteractive && !hintEmail) {
-        throw new Error("auth_required_no_hint");
-    }
-
-    // 3) silent real
-    try {
-        await requestAccessToken({ prompt: "", hint: hintEmail || undefined });
-        return oauthAccessToken;
-    } catch (e) {
-        dbgWarn("ensureOAuthToken(silent) falló:", e?.message || e);
-        if (!allowInteractive) throw e; // ⚠️ devolvemos el error real
-    }
-
-
-    // 4) interactivo
-    await requestAccessToken({ prompt: interactivePrompt, hint: hintEmail || undefined });
+  // 2) token guardado válido
+  const stored = loadStoredOAuth();
+  if (stored?.access_token && stored?.expires_at && Date.now() < (stored.expires_at - 10_000)) {
+    oauthAccessToken = stored.access_token;
+    oauthExpiresAt = Number(stored.expires_at);
     return oauthAccessToken;
+  }
+
+  const hintEmail = (loadStoredOAuthEmail() || "").trim().toLowerCase();
+
+  // ✅ CORTE estilo Drive XL:
+  // Si NO es interactivo y NO tengo token guardado válido y NO tengo hint => NO llamar GIS
+  if (!allowInteractive && !hintEmail) {
+    throw new Error("TOKEN_NEEDS_INTERACTIVE");
+  }
+
+  // 3) Silent real (prompt:"")
+  try {
+    await requestAccessToken({ prompt: "", hint: hintEmail || undefined });
+    if (isTokenValid()) return oauthAccessToken;
+  } catch (e) {
+    const msg = String(e?.message || e || "").toLowerCase();
+    dbgWarn("ensureOAuthToken(silent) falló:", msg);
+
+    // si NO podemos interactuar, normalizamos error para el resto del sistema
+    if (!allowInteractive) throw new Error("TOKEN_NEEDS_INTERACTIVE");
+  }
+
+  // 4) Interactivo
+  await requestAccessToken({ prompt: interactivePrompt ?? "consent", hint: hintEmail || undefined });
+
+  if (!isTokenValid()) {
+    throw new Error("TOKEN_NEEDS_INTERACTIVE");
+  }
+
+  return oauthAccessToken;
 }
 
 async function forceSwitchAccount() {
@@ -877,10 +911,18 @@ async function scheduleRetry(label = "") {
       dbgWarn("scheduleRetry: token inválido -> intento ensureOAuthToken(false)");
       await ensureOAuthToken(false);
     } catch (e) {
-      dbgWarn("scheduleRetry: no pudo asegurar token silencioso:", e?.message || e);
-      return; // sin token no tiene sentido seguir reintentando
+      const msg = String(e?.message || e || "");
+      dbgWarn("scheduleRetry: no pudo asegurar token silencioso:", msg);
+
+      // ✅ si necesita interacción, NO reintentar en loop
+      if (msg === "TOKEN_NEEDS_INTERACTIVE") {
+        setSync("offline", "Necesita Conectar");
+        btnRefresh.style.display = "inline-block";
+      }
+      return;
     }
   }
+
 
   if (!isTokenValid()) return;
 
@@ -1294,12 +1336,22 @@ async function runConnectFlow({ interactive, prompt } = { interactive: false, pr
 
       return { ok: true };
     } catch (e) {
-      dbgErr("runConnectFlow ERROR:", e);
+  dbgErr("runConnectFlow ERROR:", e);
 
-      setSync("offline", "Necesita Conectar");
-      btnRefresh.style.display = "inline-block";
-      return { ok: false, error: e?.message || String(e) };
-    } finally {
+  const msg = String(e?.message || e || "");
+
+  // ✅ mensaje uniforme
+  if (msg === "TOKEN_NEEDS_INTERACTIVE") {
+    setSync("offline", "Necesita Conectar");
+    btnRefresh.style.display = "inline-block";
+    return { ok: false, needsInteractive: true };
+  }
+
+  setSync("offline", "Necesita Conectar");
+  btnRefresh.style.display = "inline-block";
+  return { ok: false, error: msg };
+}
+ finally {
       // liberamos lock
       connectInFlight = null;
     }
@@ -1323,6 +1375,13 @@ btnConnect.addEventListener("click", async () => {
 
   // Si estaba en modo switch, primero limpiamos storage y pedimos select_account
   if (btnConnect.dataset.mode === "switch") {
+    // backup por si el usuario cancela el selector
+    const prevStored = loadStoredOAuth();
+    const prevEmail = loadStoredOAuthEmail();
+    const prevRuntimeToken = oauthAccessToken;
+    const prevRuntimeExp = oauthExpiresAt;
+
+    // limpiamos para forzar selector de cuenta
     clearStoredOAuth();
     clearStoredOAuthEmail();
     oauthAccessToken = "";
@@ -1330,12 +1389,27 @@ btnConnect.addEventListener("click", async () => {
 
     const res = await runConnectFlow({ interactive: true, prompt: "select_account" });
 
-    // si canceló, no toques nada más
-    if (res?.canceled) return;
+    // si canceló => restaurar sesión anterior
+    if (res?.canceled) {
+      if (prevStored?.access_token && prevStored?.expires_at) {
+        saveStoredOAuth(prevStored.access_token, prevStored.expires_at);
+      }
+      if (prevEmail) saveStoredOAuthEmail(prevEmail);
+      oauthAccessToken = prevRuntimeToken || "";
+      oauthExpiresAt = prevRuntimeExp || 0;
+      setAccountUI(prevEmail || "");
+      if (isTokenValid()) setSync("ok", "Listo ✅");
+      else {
+        setSync("offline", "Necesita Conectar");
+        btnRefresh.style.display = "inline-block";
+      }
+      return;
+    }
 
     if (!res?.ok) toast("No se pudo cambiar cuenta", "err", "Intentá de nuevo.");
     return;
   }
+
 
   // Modo connect normal
   const res = await runConnectFlow({ interactive: true, prompt: "consent" });
