@@ -611,6 +611,21 @@ function b64UrlDecodeUtf8_(b64url) {
   return new TextDecoder().decode(bytes);
 }
 
+// =====================
+// POST helper (evita JSONP/chunks)
+// - Content-Type: text/plain;charset=utf-8 => minimiza CORS/preflight en algunos casos
+// =====================
+async function apiPost_(payload) {
+  const r = await fetch(API_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload || {})
+  });
+
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { return { ok: false, error: "non_json", detail: text.slice(0, 200) }; }
+}
 
 function jsonpRequest(url, params = {}) {
     return new Promise((resolve, reject) => {
@@ -647,67 +662,16 @@ function jsonpRequest(url, params = {}) {
 }
 
 // =====================
-// SET via JSONP (con fallback a CHUNKS si la URL queda larga)
+// SET via POST (sin JSONP / sin chunks)
 // =====================
-
-// límite conservador para no romper URL en JSONP
-const JSONP_B64_MAX = 6000;
-
-// tamaño de cada parte (b64url) para modo chunk
-const JSONP_CHUNK_SIZE = 1800;
-
-function makeBatchId_() {
-  return Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
-}
-
-// Hace SET usando:
-// - mode=set con items_b64 si entra en URL
-// - mode=set_chunk (multipart) si NO entra
-async function jsonpSet_(token, payload) {
-  const expectedUpdatedAt = payload.expectedUpdatedAt ?? 0;
-  const itemsJson = JSON.stringify(payload.items || []);
-  const itemsB64 = b64UrlEncodeUtf8_(itemsJson);
-
-  // 1) Si entra, SET normal por JSONP
-  if (itemsB64.length <= JSONP_B64_MAX) {
-    return await jsonpRequest(API_BASE, {
-      mode: "set",
-      access_token: token,
-      expectedUpdatedAt,
-      items_b64: itemsB64
-    });
-  }
-
-  // 2) Si NO entra, multipart set_chunk
-  const batchId = makeBatchId_();
-  const totalParts = Math.ceil(itemsB64.length / JSONP_CHUNK_SIZE);
-
-  dbgWarn("SET: payload grande, usando chunks", { totalParts, b64Len: itemsB64.length });
-
-  // mandamos partes secuenciales (más simple y robusto)
-  for (let i = 0; i < totalParts; i++) {
-    const part = itemsB64.slice(i * JSONP_CHUNK_SIZE, (i + 1) * JSONP_CHUNK_SIZE);
-
-    const resp = await jsonpRequest(API_BASE, {
-      mode: "set_chunk",
-      access_token: token,
-      expectedUpdatedAt,
-      batchId,
-      partIndex: i,
-      partTotal: totalParts,
-      part
-    });
-
-    // si el backend devuelve error en el medio, cortamos
-    if (!resp?.ok && resp?.error) return resp;
-  }
-
-  // El backend devuelve el resultado final en el último chunk
-  // así que retornamos el último "resp" ya recibido.
-  // Para eso, repetimos un “finalize” liviano:
-  // (en realidad el backend ya finaliza en el último chunk, así que hacemos un ping “get” opcional)
-  // Pero para mantener tu flujo, devolvemos un get actualizado:
-  return await jsonpRequest(API_BASE, { mode: "get", access_token: token });
+async function postSet_(token, payload) {
+  const body = {
+    mode: "set",
+    access_token: token,
+    expectedUpdatedAt: Number(payload?.expectedUpdatedAt || 0),
+    items: Array.isArray(payload?.items) ? payload.items : []
+  };
+  return await apiPost_(body);
 }
 
 // =====================
@@ -719,50 +683,22 @@ async function apiCall(mode, payload = {}, opts = {}) {
 
   // 1) asegurar token
   let token = await ensureOAuthToken(allowInteractive, opts.interactivePrompt || "consent");
-
   dbg("apiCall:", { mode, allowInteractive, hasToken: !!token });
 
+  // 2) armar body
+  const body = { mode, access_token: token, ...(payload || {}) };
 
-  // helper: si backend dice missing_scope/auth_required => forzar consent y reintentar
-  async function retryWithConsentIfNeeded(resp) {
-    if (resp?.ok) return resp;
+  // 3) POST para todo
+  let data = await apiPost_(body);
 
-    if (resp?.error === "missing_scope" || resp?.error === "auth_required") {
-      // fuerza consentimiento para que incluya el scope requerido
-      token = await ensureOAuthToken(true, "consent");
-
-      // reintento del mismo modo
-      if (mode === "ping" || mode === "whoami" || mode === "get") {
-        return await jsonpRequest(API_BASE, { mode, access_token: token });
-      }
-      // set: reintentar con consentimiento usando JSONP/chunks
-      if (mode === "set") {
-        return await jsonpSet_(token, payload);
-      }
-
-
-    }
-
-    return resp;
+  // 4) retry con consent si falta scope/auth
+  if (!data?.ok && (data?.error === "missing_scope" || data?.error === "auth_required")) {
+    token = await ensureOAuthToken(true, "consent");
+    body.access_token = token;
+    data = await apiPost_(body);
   }
 
-  // 2) GET por JSONP (sin CORS)
-  if (mode === "ping" || mode === "whoami" || mode === "get") {
-    const data = await jsonpRequest(API_BASE, { mode, access_token: token });
-    dbg("apiCall GET resp:", mode, data);
-    return await retryWithConsentIfNeeded(data || {});
-  }
-
-  // 3) SET por JSONP (sin CORS) + chunks si es grande
-  if (mode === "set") {
-    const data = await jsonpSet_(token, payload);
-    dbg("apiCall SET resp (JSONP/chunks):", data);
-    return await retryWithConsentIfNeeded(data || {});
-  }
-
-
-  // fallback
-  return { ok: false, error: "bad_mode_client" };
+  return data || { ok: false, error: "empty_response" };
 }
 
 async function verifyBackendAccessOrThrow(allowInteractive) {
@@ -990,15 +926,14 @@ async function scheduleSave(reason = "") {
     try {
       const startedVersion = localVersion;
 
-      // Precheck: traer remoto actual
-      const before = await apiCall("get", {}, { allowInteractive: false });
-      if (!before?.ok) throw new Error(before?.error || "get_failed");
+      // ✅ Optimistic save: NO hacemos GET antes del SET
+      // Usamos el updatedAt local que ya tenemos
+      const remoteUA = Number(remoteMeta?.updatedAt || 0);
 
-      const remoteItems = Array.isArray(before.items) ? before.items : [];
-      const remoteUA = Number(before?.meta?.updatedAt || 0);
+      // Merge: usamos "listaItems" como base local
+      // (si hay conflicto, el backend nos devuelve items y re-mergeamos)
+      const merged = mergeRemoteWithLocal([], listaItems, tombstones);
 
-      // Merge remoto + local
-      const merged = mergeRemoteWithLocal(remoteItems, listaItems, tombstones);
 
       // Seguridad: no guardar vacío por error
       if (merged.length === 0) {
@@ -1007,25 +942,28 @@ async function scheduleSave(reason = "") {
         toast("Bloqueado", "warn", "No se permite guardar una lista vacía por seguridad.");
         return;
       }
-
+      
       // Set con expectedUpdatedAt (conflictos)
-      const saved = await apiCall("set", { items: merged, expectedUpdatedAt: remoteUA }, { allowInteractive: false });
+      let saved = await apiCall("set", { items: merged, expectedUpdatedAt: remoteUA }, { allowInteractive: false });
 
-      if (!saved?.ok) {
-        if (saved?.error === "conflict") {
-          // re-merge una vez
-          const r2Items = Array.isArray(saved?.items) ? saved.items : [];
-          const r2UA = Number(saved?.meta?.updatedAt || 0);
-          const merged2 = mergeRemoteWithLocal(r2Items, listaItems, tombstones);
-          const saved2 = await apiCall("set", { items: merged2, expectedUpdatedAt: r2UA }, { allowInteractive: false });
-          if (!saved2?.ok) throw new Error(saved2?.error || "set_failed");
-          remoteMeta = { updatedAt: Number(saved2?.meta?.updatedAt || 0) };
-        } else {
-          throw new Error(saved?.error || "set_failed");
-        }
-      } else {
-        remoteMeta = { updatedAt: Number(saved?.meta?.updatedAt || 0) };
+      if (!saved?.ok && saved?.error === "conflict") {
+        // ✅ Re-merge con lo que el backend devolvió (estado actual remoto)
+        const rItems = Array.isArray(saved?.items) ? saved.items : [];
+        const rUA = Number(saved?.meta?.updatedAt || 0);
+
+        const merged2 = mergeRemoteWithLocal(rItems, listaItems, tombstones);
+        const saved2 = await apiCall("set", { items: merged2, expectedUpdatedAt: rUA }, { allowInteractive: false });
+
+        if (!saved2?.ok) throw new Error(saved2?.error || "set_failed");
+
+        saved = saved2;
       }
+
+      if (!saved?.ok) throw new Error(saved?.error || "set_failed");
+
+      // ok
+      remoteMeta = { updatedAt: Number(saved?.meta?.updatedAt || 0) };
+
 
       // Si hubo cambios mientras guardábamos, no “pisar” el estado local
       if (localVersion !== startedVersion) {
