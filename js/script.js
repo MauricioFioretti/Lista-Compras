@@ -583,33 +583,8 @@ async function forceSwitchAccount() {
 }
 
 // =====================
-// API client (POST JSON + token en body)
+// API client (POST text/plain + JSON body)
 // =====================
-
-// =====================
-// JSONP helper (evita CORS en GitHub Pages)
-// =====================
-
-// =====================
-// JSONP helper (evita CORS en GitHub Pages)
-// =====================
-
-// ===== Base64 URL-safe helpers (para mandar items por GET sin romper query) =====
-function b64UrlEncodeUtf8_(str) {
-  const bytes = new TextEncoder().encode(str);
-  let bin = "";
-  bytes.forEach(b => (bin += String.fromCharCode(b)));
-  const b64 = btoa(bin);
-  return b64.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function b64UrlDecodeUtf8_(b64url) {
-  let b64 = (b64url || "").replaceAll("-", "+").replaceAll("_", "/");
-  while (b64.length % 4) b64 += "=";
-  const bin = atob(b64);
-  const bytes = new Uint8Array([...bin].map(ch => ch.charCodeAt(0)));
-  return new TextDecoder().decode(bytes);
-}
 
 // =====================
 // POST helper (evita JSONP/chunks)
@@ -625,53 +600,6 @@ async function apiPost_(payload) {
   const text = await r.text();
   try { return JSON.parse(text); }
   catch { return { ok: false, error: "non_json", detail: text.slice(0, 200) }; }
-}
-
-function jsonpRequest(url, params = {}) {
-    return new Promise((resolve, reject) => {
-        const cbName = "__jsonp_cb_" + Math.random().toString(36).slice(2);
-        const qs = new URLSearchParams({ ...params, callback: cbName }).toString();
-
-        const script = document.createElement("script");
-        script.src = url + (url.includes("?") ? "&" : "?") + qs;
-        script.async = true;
-
-        const timeout = setTimeout(() => {
-            cleanup();
-            reject(new Error("jsonp_timeout"));
-        }, 15000);
-
-        function cleanup() {
-            clearTimeout(timeout);
-            delete window[cbName];
-            script.remove();
-        }
-
-        window[cbName] = (data) => {
-            cleanup();
-            resolve(data);
-        };
-
-        script.onerror = () => {
-            cleanup();
-            reject(new Error("jsonp_load_error"));
-        };
-
-        document.head.appendChild(script);
-    });
-}
-
-// =====================
-// SET via POST (sin JSONP / sin chunks)
-// =====================
-async function postSet_(token, payload) {
-  const body = {
-    mode: "set",
-    access_token: token,
-    expectedUpdatedAt: Number(payload?.expectedUpdatedAt || 0),
-    items: Array.isArray(payload?.items) ? payload.items : []
-  };
-  return await apiPost_(body);
 }
 
 // =====================
@@ -942,7 +870,7 @@ async function scheduleSave(reason = "") {
         toast("Bloqueado", "warn", "No se permite guardar una lista vacía por seguridad.");
         return;
       }
-      
+
       // Set con expectedUpdatedAt (conflictos)
       let saved = await apiCall("set", { items: merged, expectedUpdatedAt: remoteUA }, { allowInteractive: false });
 
