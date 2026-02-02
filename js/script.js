@@ -1,7 +1,66 @@
 // =====================
-// CONFIG API (Apps Script Web App)
+// CONFIG (Google Sheets API directo) ✅
 // =====================
-const API_BASE = "https://script.google.com/macros/s/AKfycby7g9yrzm8_2j0HA0P2vLHfXP-rA8dgexHccj8a7e5FEnT1jNJhxi0jKDeb8D5vX3nB5g/exec"; // termina en /exec
+
+// 🛡️ Normaliza IDs (evita espacios, saltos de línea, o pegar la URL completa)
+function normalizeSpreadsheetId(input) {
+  const raw = String(input || "").trim();
+
+  // Si pegaron la URL completa, extrae el /d/<ID>/
+  const m = raw.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (m && m[1]) return m[1].trim();
+
+  // Si es solo el ID, pero vino con basura/espacios, lo limpia
+  // Google IDs suelen ser [a-zA-Z0-9-_] y largos
+  const m2 = raw.match(/[a-zA-Z0-9-_]{20,}/);
+  return (m2 ? m2[0] : raw).trim();
+}
+
+// ID de tu Spreadsheet de LISTA COMPRAS
+// ✅ Recomendado: pegá la URL completa, normalizeSpreadsheetId extrae el /d/<ID>/
+const SPREADSHEET_ID = normalizeSpreadsheetId("https://docs.google.com/spreadsheets/d/15_lqyiG2uB0GSp5RWFc5x0f06YilMQaCBXm3EDMFAq8/edit?gid=1038837531#gid=1038837531");
+
+// Hoja/pestaña
+const SHEET_NAME = String("Items").trim();
+
+// Meta cell
+const META_CELL_A1 = "Z1";
+
+// =====================
+// Helpers para diagnóstico de acceso / ID
+// =====================
+function spreadsheetUrl() {
+  return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(String(SPREADSHEET_ID).trim())}/edit`;
+}
+
+// Abrir planilla en pestaña nueva (útil para confirmar permisos con la cuenta actual)
+window.__openSheet = function __openSheet() {
+  const url = spreadsheetUrl();
+  console.log("__openSheet ->", url);
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
+// Test simple: intenta leer metadata (si da 404 => ID mal o sin acceso)
+window.__testMeta = async function __testMeta() {
+  console.log("=== __testMeta START ===");
+  try {
+    const token = await ensureOAuthToken(true, "consent");
+    const url =
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(String(SPREADSHEET_ID).trim())}` +
+      `?fields=spreadsheetId,properties.title`;
+
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    const text = await r.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+
+    console.log("__testMeta status:", r.status);
+    console.log("__testMeta body:", json || text);
+  } catch (e) {
+    console.error("__testMeta ERROR:", e);
+  }
+  console.log("=== __testMeta END ===");
+};
 
 // =====================
 // CONFIG OAUTH (GIS)
@@ -9,21 +68,22 @@ const API_BASE = "https://script.google.com/macros/s/AKfycby7g9yrzm8_2j0HA0P2vLH
 // IMPORTANTE: este Client ID es del proyecto NUEVO de "Lista Compras"
 const OAUTH_CLIENT_ID = "125380828558-eitpoc7fjjrqa1rseaghpkf0sdfn8mve.apps.googleusercontent.com";
 
-// scopes: openid/email/profile + userinfo + drive.metadata.readonly (requerido por backend)
+// scopes: openid/email/profile + userinfo + ✅ spreadsheets (leer/escribir planilla)
 const OAUTH_SCOPES = [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/drive.metadata.readonly"
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  // ✅ Sheets API
+  "https://www.googleapis.com/auth/spreadsheets"
 ].join(" ");
 
 // LocalStorage OAuth
-const LS_OAUTH = "lista_oauth_token_v1";        // {access_token, expires_at}
-const LS_OAUTH_EMAIL = "lista_oauth_email_v1";  // email para hint
+// ✅ v2 para forzar re-autorización limpia (evita tokens viejos sin permisos)
+const LS_OAUTH = "lista_oauth_token_v2";        // {access_token, expires_at}
+const LS_OAUTH_EMAIL = "lista_oauth_email_v2";  // email para hint
 const LS_TOMBSTONES = "lista_tombstones_v1";    // { keys: [...] }
-
 
 // =====================
 // Local cache/offline keys
@@ -222,6 +282,62 @@ function dbgErr(...args) {
   if (!DEBUG_SYNC) return;
   console.error("[SYNC]", ...args);
 }
+
+// =====================
+// TEST rápido (Sheets API directo)
+// =====================
+window.__testSheetsGet = async function __testSheetsGet() {
+  console.log("=== __testSheetsGet START ===");
+  try {
+    // allowInteractive true => si falta algo, abre popup de consent
+    const data = await apiCall("get", {}, { allowInteractive: true, interactivePrompt: "consent" });
+    console.log("__testSheetsGet resp:", data);
+  } catch (e) {
+    console.error("__testSheetsGet ERROR:", e);
+  }
+  console.log("=== __testSheetsGet END ===");
+};
+
+// =====================
+// DIAGNÓSTICO (meta + hojas visibles)
+// =====================
+window.__diagSheets = async function __diagSheets() {
+  console.log("=== __diagSheets START ===");
+
+  try {
+    const token = await ensureOAuthToken(true, "consent");
+    console.log("__diagSheets token ok:", !!token);
+
+    const urlMeta =
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(String(SPREADSHEET_ID).trim())}` +
+      `?fields=spreadsheetId,properties.title,sheets.properties.title`;
+
+    console.log("__diagSheets META url:", urlMeta);
+
+    const r = await fetch(urlMeta, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store"
+    });
+
+    const text = await r.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+
+    console.log("__diagSheets META status:", r.status);
+    console.log("__diagSheets META body:", json || text);
+
+    if (json?.sheets?.length) {
+      const names = json.sheets.map(s => s?.properties?.title).filter(Boolean);
+      console.log("__diagSheets hojas visibles:", names);
+      console.log("__diagSheets SHEET_NAME actual:", SHEET_NAME);
+    }
+
+  } catch (e) {
+    console.error("__diagSheets ERROR:", e);
+  }
+
+  console.log("=== __diagSheets END ===");
+};
 
 // =====================
 // FORZAR EXPIRACIÓN (para probar auto-reconexión)
@@ -587,19 +703,229 @@ async function forceSwitchAccount() {
 // =====================
 
 // =====================
-// POST helper (evita JSONP/chunks)
-// - Content-Type: text/plain;charset=utf-8 => minimiza CORS/preflight en algunos casos
+// API client (Sheets API directo) ✅
+// Mantiene la interfaz { mode, access_token, ... } como tu sistema actual
+// Respuestas compatibles con lo que ya espera tu código:
+// - whoami: {ok, email}
+// - get:    {ok, email, items, meta:{updatedAt,count}}
+// - set:    {ok, email, saved, meta:{updatedAt,count}}
+// - conflict:{ok:false,error:"conflict", items, meta:{updatedAt,count}}
 // =====================
 async function apiPost_(payload) {
-  const r = await fetch(API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload || {})
-  });
+  const mode = (payload?.mode || "").toString().toLowerCase();
+  const token = (payload?.access_token || "").toString();
+  if (!token) return { ok: false, error: "auth_required" };
 
-  const text = await r.text();
-  try { return JSON.parse(text); }
-  catch { return { ok: false, error: "non_json", detail: text.slice(0, 200) }; }
+  // helper interno: fetch JSON
+  async function fetchJson(url, options = {}) {
+    const r = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {})
+      }
+    });
+
+    const text = await r.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+
+    return { r, status: r.status, url, text, json };
+  }
+
+  // clasifica errores típicos de Google APIs (para ver “qué es” el 404/403)
+  function classifyGoogleApiError(resp) {
+    const status = Number(resp?.status || 0);
+    const msg = String(resp?.json?.error?.message || resp?.text || "").toLowerCase();
+    const stat = String(resp?.json?.error?.status || "").toLowerCase();
+
+    if (status === 401) return { error: "auth_required" };
+
+    if (status === 403) {
+      // token sin scopes / permisos insuficientes
+      if (
+        msg.includes("insufficient authentication scopes") ||
+        msg.includes("access_token_scope_insufficient") ||
+        msg.includes("insufficientpermissions")
+      ) return { error: "missing_scope" };
+
+      if (msg.includes("has not been used in project") || msg.includes("is disabled")) {
+        return { error: "api_disabled" };
+      }
+
+      return { error: "permission_denied" };
+    }
+
+    if (status === 404) {
+      // IMPORTANTÍSIMO:
+      // Google suele devolver 404 cuando:
+      // - ID incorrecto, o
+      // - la cuenta NO tiene acceso (aunque exista), o
+      // - el recurso está en un contexto que no estás viendo con esa cuenta
+      // mensaje típico: "Requested entity was not found."
+      return { error: "not_found_or_no_access" };
+    }
+
+    return { error: "http_" + status };
+  }
+
+  try {
+    // ---------- PING ----------
+    if (mode === "ping") return { ok: true, pong: true };
+
+    // ---------- WHOAMI ----------
+    if (mode === "whoami") {
+      const resp = await fetchJson("https://openidconnect.googleapis.com/v1/userinfo");
+      if (!resp?.r?.ok) {
+        const cls = classifyGoogleApiError(resp);
+        return { ok: false, error: cls.error || "whoami_failed", status: resp.status, detail: String(resp.text || "").slice(0, 1200) };
+      }
+      const email = (resp?.json?.email || "").toString().toLowerCase().trim();
+      return { ok: true, email };
+    }
+
+    // ---------- GET ----------
+    if (mode === "get") {
+      const rangeItems = `${SHEET_NAME}!A2:B`;
+      const rangeMeta  = `${SHEET_NAME}!${META_CELL_A1}`;
+
+      const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SPREADSHEET_ID)}` +
+        `/values:batchGet?ranges=${encodeURIComponent(rangeItems)}&ranges=${encodeURIComponent(rangeMeta)}` +
+        `&majorDimension=ROWS`;
+
+      const resp = await fetchJson(url);
+      if (!resp?.r?.ok) {
+        const cls = classifyGoogleApiError(resp);
+        return {
+          ok: false,
+          error: cls.error || "get_failed",
+          status: resp.status,
+          url: resp.url,
+          detail: String(resp.text || "").slice(0, 2000)
+        };
+      }
+
+      const json = resp.json || {};
+      const valueRanges = Array.isArray(json?.valueRanges) ? json.valueRanges : [];
+      const itemsValues = Array.isArray(valueRanges?.[0]?.values) ? valueRanges[0].values : [];
+      const metaValues  = Array.isArray(valueRanges?.[1]?.values) ? valueRanges[1].values : [];
+
+      const updatedAt = Number(metaValues?.[0]?.[0] || 0);
+
+      const items = itemsValues
+        .filter(row => (row?.[0] || "").toString().trim() !== "")
+        .map(row => ({
+          texto: (row?.[0] || "").toString(),
+          completado:
+            String(row?.[1] || "").toLowerCase().trim() === "true" ||
+            String(row?.[1] || "").trim() === "1"
+        }));
+
+      // Email (opcional)
+      let email = "";
+      try {
+        const who = await apiPost_({ mode: "whoami", access_token: token });
+        if (who?.ok) email = who.email || "";
+      } catch {}
+
+      return { ok: true, email, items, meta: { updatedAt, count: items.length } };
+    }
+
+    // ---------- SET ----------
+    if (mode === "set") {
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const expectedUpdatedAt = Number(payload?.expectedUpdatedAt || 0);
+
+      // 1) leer estado remoto
+      const before = await apiPost_({ mode: "get", access_token: token });
+      if (!before?.ok) return before;
+
+      const remoteUA = Number(before?.meta?.updatedAt || 0);
+      const remoteCount = Number(before?.meta?.count || 0);
+
+      if (expectedUpdatedAt !== remoteUA) {
+        return {
+          ok: false,
+          error: "conflict",
+          items: Array.isArray(before?.items) ? before.items : [],
+          meta: { updatedAt: remoteUA, count: remoteCount }
+        };
+      }
+
+      // 2) normalizar/dedup/ordenar
+      let clean = (items || [])
+        .map(it => ({ texto: (it?.texto || "").toString().trim(), completado: !!it?.completado }))
+        .filter(it => it.texto !== "");
+
+      const seen = new Set();
+      clean = clean.filter(it => {
+        const key = it.texto.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      clean.sort((a, b) => {
+        if (a.completado === b.completado) return a.texto.toLowerCase().localeCompare(b.texto.toLowerCase());
+        return (b.completado === true) - (a.completado === true);
+      });
+
+      if (clean.length === 0) return { ok: false, error: "empty_list_blocked" };
+
+      // 3) batchUpdate
+      const nextUA = Date.now();
+      const maxLen = Math.max(remoteCount, clean.length);
+
+      const values = [];
+      for (let i = 0; i < maxLen; i++) {
+        if (i < clean.length) values.push([clean[i].texto, clean[i].completado ? "TRUE" : "FALSE"]);
+        else values.push(["", ""]);
+      }
+
+      const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SPREADSHEET_ID)}` +
+        `/values:batchUpdate`;
+
+      const body = {
+        valueInputOption: "USER_ENTERED",
+        data: [
+          { range: `${SHEET_NAME}!A2:B`, majorDimension: "ROWS", values },
+          { range: `${SHEET_NAME}!${META_CELL_A1}`, majorDimension: "ROWS", values: [[String(nextUA)]] }
+        ]
+      };
+
+      const resp2 = await fetchJson(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      if (!resp2?.r?.ok) {
+        const cls = classifyGoogleApiError(resp2);
+        return {
+          ok: false,
+          error: cls.error || "set_failed",
+          status: resp2.status,
+          url: resp2.url,
+          detail: String(resp2.text || "").slice(0, 2000)
+        };
+      }
+
+      // Email (opcional)
+      let email = "";
+      try {
+        const who = await apiPost_({ mode: "whoami", access_token: token });
+        if (who?.ok) email = who.email || "";
+      } catch {}
+
+      return { ok: true, email, saved: clean.length, meta: { updatedAt: nextUA, count: clean.length } };
+    }
+
+    return { ok: false, error: "bad_mode" };
+  } catch (e) {
+    return { ok: false, error: "network_error", detail: String(e?.message || e) };
+  }
 }
 
 // =====================
@@ -620,7 +946,11 @@ async function apiCall(mode, payload = {}, opts = {}) {
   let data = await apiPost_(body);
 
   // 4) retry con consent si falta scope/auth
-  if (!data?.ok && (data?.error === "missing_scope" || data?.error === "auth_required")) {
+  if (!data?.ok && (
+      data?.error === "missing_scope" ||
+      data?.error === "auth_required" ||
+      data?.error === "whoami_failed"
+    )) {
     token = await ensureOAuthToken(true, "consent");
     body.access_token = token;
     data = await apiPost_(body);
@@ -630,16 +960,15 @@ async function apiCall(mode, payload = {}, opts = {}) {
 }
 
 async function verifyBackendAccessOrThrow(allowInteractive) {
-    const data = await apiCall("whoami", {}, { allowInteractive });
+  const data = await apiCall("whoami", {}, { allowInteractive });
 
-    if (!data?.ok) {
-        // ✅ Esto es CLAVE: ahora vas a ver el detail real en consola
-        console.error("WHOAMI FAIL (backend):", data);
-        const msg = (data?.error || "no_access") + (data?.detail ? ` | ${data.detail}` : "");
-        throw new Error(msg);
-    }
+  if (!data?.ok) {
+    console.error("WHOAMI FAIL:", data);
+    const msg = (data?.error || "no_access") + (data?.detail ? ` | ${data.detail}` : "");
+    throw new Error(msg);
+  }
 
-    return data;
+  return data;
 }
 
 // =====================
@@ -1003,7 +1332,6 @@ async function trySyncPending() {
   }
 }
 
-
 async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: false }) {
   if (!isOnline()) {
     setSync("offline", "Sin conexión — usando cache");
@@ -1019,7 +1347,6 @@ async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: fal
     }
   }
 
-
   // si sigue sin token válido, no tocar remoto
   if (!isTokenValid()) {
     dbgWarn("refreshFromRemote: sin token válido -> necesita conectar");
@@ -1030,7 +1357,36 @@ async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: fal
 
   try {
     const resp = await apiCall("get", {}, { allowInteractive: false });
-    if (!resp?.ok) throw new Error(resp?.error || "get_failed");
+
+    if (!resp?.ok) {
+      // ✅ Caso CLAVE: ID mal o sin acceso a la planilla
+      if (resp?.error === "not_found_or_no_access") {
+        setSync("offline", "Sin acceso a planilla / ID incorrecto");
+        btnRefresh.style.display = "inline-block";
+
+        if (showToast) {
+          toast(
+            "No se pudo acceder a la planilla",
+            "err",
+            "Es un 404: ID incorrecto o esta cuenta no tiene permisos. Usá __openSheet() para abrirla."
+          );
+        }
+
+        // Log extra útil
+        console.error("[SYNC] Sheets GET not_found_or_no_access", {
+          spreadsheetId: SPREADSHEET_ID,
+          sheetName: SHEET_NAME,
+          status: resp.status,
+          url: resp.url,
+          detail: resp.detail
+        });
+
+        return;
+      }
+
+      // otros errores
+      throw new Error(resp?.error || "get_failed");
+    }
 
     const remoteItems = Array.isArray(resp?.items) ? resp.items : [];
     const meta = resp?.meta || { updatedAt: 0 };
@@ -1044,13 +1400,15 @@ async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: fal
     setSync("ok", "Listo ✅");
     btnRefresh.style.display = "none";
     if (showToast) toast("Lista actualizada", "ok", "Cargada desde Drive.");
-  } catch {
+  } catch (e) {
+    dbgErr("refreshFromRemote ERROR:", e);
+
     setSync("offline", "No se pudo cargar — usando cache");
     btnRefresh.style.display = "inline-block";
-    if (showToast) toast("No se pudo cargar", "warn", "Mostrando la última versión guardada.");
+
+    if (showToast) toast("No se pudo cargar", "warn", "Abrí consola para ver detalle.");
   }
 }
-
 
 // =====================
 // Eventos
