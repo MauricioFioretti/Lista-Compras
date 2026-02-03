@@ -145,6 +145,27 @@ body {
   min-width: 180px;
 }
 
+/* ===== Ghost text (para que "Super" no sea placeholder gris) ===== */
+.input-ghost-wrap{
+  position: relative;
+  display: inline-block;
+}
+
+.input-ghost-wrap .ghost-label{
+  position: absolute;
+  left: 9px;     /* coincide con padding del input */
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255,255,255,0.85);  /* blanco “real”, no gris de placeholder */
+  pointer-events: none;           /* no molesta al click */
+  font-size: 0.95rem;
+}
+
+/* Cuando hay valor o foco: ocultar el ghost */
+.input-ghost-wrap.has-value .ghost-label{
+  display: none;
+}
+
 /* ======= BOTONES ======= */
 button {
   background: var(--yt-btn);
@@ -170,6 +191,15 @@ button:active { background: #4d4d4d; transform: scale(0.995); }
   background: #c00;
   border: none;
 }
+
+.items .btn-nohay{
+  background:#303030;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.items .btn-nohay:hover{
+  background:#4b4b4b;
+}
+
 .items .eliminar-item:hover { background: #ff3b3b; }
 
 /* ======= LISTA ======= */

@@ -155,8 +155,95 @@ seccionLista.appendChild(label1);
 
 const input1 = document.createElement("input");
 input1.type = "text";
+input1.placeholder = "Ej: Pan lactal…";
 seccionLista.appendChild(input1);
 
+// ===== Sección (con datalist + texto libre) =====
+const seccionWrap = document.createElement("div");
+seccionWrap.style.display = "flex";
+seccionWrap.style.alignItems = "center";
+seccionWrap.style.gap = "8px";
+seccionWrap.style.minWidth = "240px";
+seccionLista.appendChild(seccionWrap);
+
+const seccionLabel = document.createElement("span");
+seccionLabel.textContent = "Sección:";
+seccionLabel.style.color = "#fff";
+seccionLabel.style.whiteSpace = "nowrap";
+seccionWrap.appendChild(seccionLabel);
+
+// --- Sección (input + ghost "Super" visible en blanco, pero value vacío) ---
+const seccionInputWrap = document.createElement("div");
+seccionInputWrap.className = "input-ghost-wrap";
+seccionWrap.appendChild(seccionInputWrap);
+
+const inputSeccion = document.createElement("input");
+inputSeccion.type = "text";
+
+// ✅ Dejamos el placeholder vacío para no verlo gris.
+// El "Super" lo mostramos con un ghost text (span) en blanco.
+inputSeccion.placeholder = "";
+inputSeccion.value = "";
+
+inputSeccion.setAttribute("list", "datalist-secciones");
+inputSeccion.style.minWidth = "150px";
+seccionInputWrap.appendChild(inputSeccion);
+
+// Ghost text (se ve como texto normal cuando el input está vacío)
+const seccionGhost = document.createElement("span");
+seccionGhost.className = "ghost-label";
+seccionGhost.textContent = "Super";
+seccionInputWrap.appendChild(seccionGhost);
+
+const dlSecciones = document.createElement("datalist");
+dlSecciones.id = "datalist-secciones";
+seccionWrap.appendChild(dlSecciones);
+
+// Helper: mostrar/ocultar ghost
+function updateSeccionGhost() {
+  const hasValue = (inputSeccion.value || "").trim().length > 0;
+  // si hay valor o está enfocado, ocultamos el ghost
+  if (hasValue || document.activeElement === inputSeccion) {
+    seccionInputWrap.classList.add("has-value");
+  } else {
+    seccionInputWrap.classList.remove("has-value");
+  }
+}
+
+// Eventos para el ghost
+inputSeccion.addEventListener("input", updateSeccionGhost);
+inputSeccion.addEventListener("focus", updateSeccionGhost);
+inputSeccion.addEventListener("blur", updateSeccionGhost);
+
+// Inicial
+updateSeccionGhost();
+
+// ===== Subsección (depende de sección) =====
+const subWrap = document.createElement("div");
+subWrap.style.display = "flex";
+subWrap.style.alignItems = "center";
+subWrap.style.gap = "8px";
+subWrap.style.minWidth = "260px";
+seccionLista.appendChild(subWrap);
+
+const subLabel = document.createElement("span");
+subLabel.textContent = "Sub:";
+subLabel.style.color = "#fff";
+subLabel.style.whiteSpace = "nowrap";
+subWrap.appendChild(subLabel);
+
+const inputSubseccion = document.createElement("input");
+inputSubseccion.type = "text";
+inputSubseccion.placeholder = "Ej: Ferretería…";
+inputSubseccion.setAttribute("list", "datalist-subsecciones");
+inputSubseccion.style.minWidth = "170px";
+subWrap.appendChild(inputSubseccion);
+
+const dlSubsecciones = document.createElement("datalist");
+dlSubsecciones.id = "datalist-subsecciones";
+subWrap.appendChild(dlSubsecciones);
+
+// ===== Botón Agregar =====
 const button1 = document.createElement("button");
 button1.innerText = "Agregar";
 seccionLista.appendChild(button1);
@@ -247,6 +334,80 @@ const toastRoot = document.getElementById("toast-root");
 // Estado
 // =====================
 let listaItems = [];
+// =====================
+// Secciones / Subsecciones (UI helpers)
+// =====================
+const DEFAULT_SECCIONES = ["Super", "Verdulería", "Otros"];
+
+function normCat(s) {
+  return (s ?? "").toString().trim();
+}
+
+function getSeccionOrDefault(it) {
+  const s = normCat(it?.seccion);
+  return s || "Super";
+}
+
+function getSubOrDefault(it) {
+  const s = normCat(it?.subseccion);
+  return s || "";
+}
+
+function rebuildSectionDatalists() {
+  // 1) Secciones existentes + defaults
+  const setSec = new Set(DEFAULT_SECCIONES);
+  for (const it of (listaItems || [])) setSec.add(getSeccionOrDefault(it));
+
+  const secciones = Array.from(setSec).filter(Boolean).sort((a,b)=>a.localeCompare(b));
+
+  dlSecciones.innerHTML = "";
+  for (const s of secciones) {
+    const opt = document.createElement("option");
+    opt.value = s;
+    dlSecciones.appendChild(opt);
+  }
+
+  // 2) Subsecciones SOLO de la sección actual
+  const secActual = normCat(inputSeccion.value) || "Super";
+  const setSub = new Set();
+  for (const it of (listaItems || [])) {
+    const sec = getSeccionOrDefault(it);
+    if (sec !== secActual) continue;
+    const sub = getSubOrDefault(it);
+    if (sub) setSub.add(sub);
+  }
+
+  const subs = Array.from(setSub).sort((a,b)=>a.localeCompare(b));
+  dlSubsecciones.innerHTML = "";
+  for (const s of subs) {
+    const opt = document.createElement("option");
+    opt.value = s;
+    dlSubsecciones.appendChild(opt);
+  }
+}
+
+// cuando cambia la sección, refrescamos las subsecciones
+// ✅ NO forzamos "Super" en el input (dejamos que quede vacío)
+// ✅ Solo usamos "Super" como default lógico (para filtrar subsecciones / al agregar items)
+let _lastSeccionParaSub = "Super";
+
+inputSeccion.addEventListener("input", () => {
+  const secActual = normCat(inputSeccion.value) || "Super";
+
+  // Solo limpiamos la subsección si realmente cambió la sección (lógica)
+  if (secActual !== _lastSeccionParaSub) {
+    inputSubseccion.value = "";
+    _lastSeccionParaSub = secActual;
+  }
+
+  rebuildSectionDatalists();
+});
+
+// (opcional) Al enfocar, reconstruimos para asegurar opciones actualizadas
+inputSeccion.addEventListener("focus", () => {
+  rebuildSectionDatalists();
+});
+
 let remoteMeta = { updatedAt: 0 };
 
 // =====================
@@ -388,27 +549,38 @@ function keyFromTexto(texto) {
 function mergeRemoteWithLocal(remoteItems, localItems, tombstoneSet) {
     const byKey = new Map();
 
+    function normalizeItem(it) {
+      const texto = normalizarTexto(it?.texto);
+      if (!texto) return null;
+      return {
+        texto,
+        completado: !!it?.completado,
+        seccion: normCat(it?.seccion) || "Super",
+        subseccion: normCat(it?.subseccion) || "",
+        noDisponible: !!it?.noDisponible
+      };
+    }
+
     // base remoto
     for (const it of (remoteItems || [])) {
-        const texto = normalizarTexto(it?.texto);
-        if (!texto) continue;
-        const k = keyFromTexto(texto);
+        const norm = normalizeItem(it);
+        if (!norm) continue;
+        const k = keyFromTexto(norm.texto);
         if (tombstoneSet.has(k)) continue;
-        byKey.set(k, { texto, completado: !!it?.completado });
+        byKey.set(k, norm);
     }
 
     // overlay local (gana local)
     for (const it of (localItems || [])) {
-        const texto = normalizarTexto(it?.texto);
-        if (!texto) continue;
-        const k = keyFromTexto(texto);
+        const norm = normalizeItem(it);
+        if (!norm) continue;
+        const k = keyFromTexto(norm.texto);
         if (tombstoneSet.has(k)) continue;
-        byKey.set(k, { texto, completado: !!it?.completado });
+        byKey.set(k, norm);
     }
 
     return dedupNormalize(Array.from(byKey.values()));
 }
-
 
 // ===== Control de cambios locales (evita pisadas por GET de verificación) =====
 let localVersion = 0;        // sube cada vez que el usuario cambia algo
@@ -448,12 +620,27 @@ function toast(msg, type = "ok", small = "") {
 // Data helpers
 // =====================
 function ordenarLista(arr) {
-    return arr.sort((a, b) => {
-        if (a.completado === b.completado) {
-            return a.texto.toLowerCase().localeCompare(b.texto.toLowerCase());
-        }
-        // completados arriba
-        return (b.completado === true) - (a.completado === true);
+    return (arr || []).sort((a, b) => {
+        // 1) No disponible siempre al final
+        const na = a.noDisponible ? 1 : 0;
+        const nb = b.noDisponible ? 1 : 0;
+        if (na !== nb) return na - nb;
+
+        // 2) Para comprar (completado=true) arriba
+        const ca = a.completado ? 0 : 1;
+        const cb = b.completado ? 0 : 1;
+        if (ca !== cb) return ca - cb;
+
+        // 3) Luego por sección, subsección, texto
+        const sa = (a.seccion || "").toLowerCase();
+        const sb = (b.seccion || "").toLowerCase();
+        if (sa !== sb) return sa.localeCompare(sb);
+
+        const ua = (a.subseccion || "").toLowerCase();
+        const ub = (b.subseccion || "").toLowerCase();
+        if (ua !== ub) return ua.localeCompare(ub);
+
+        return (a.texto || "").toLowerCase().localeCompare((b.texto || "").toLowerCase());
     });
 }
 
@@ -467,10 +654,18 @@ function dedupNormalize(items) {
     for (const it of items || []) {
         const texto = normalizarTexto(it?.texto);
         if (!texto) continue;
+
         const key = texto.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ texto, completado: !!it?.completado });
+
+        out.push({
+            texto,
+            completado: !!it?.completado,
+            seccion: normCat(it?.seccion) || "Super",
+            subseccion: normCat(it?.subseccion) || "",
+            noDisponible: !!it?.noDisponible
+        });
     }
     return ordenarLista(out);
 }
@@ -786,7 +981,7 @@ async function apiPost_(payload) {
 
     // ---------- GET ----------
     if (mode === "get") {
-      const rangeItems = `${SHEET_NAME}!A2:B`;
+      const rangeItems = `${SHEET_NAME}!A2:E`;
       const rangeMeta  = `${SHEET_NAME}!${META_CELL_A1}`;
 
       const url =
@@ -819,7 +1014,12 @@ async function apiPost_(payload) {
           texto: (row?.[0] || "").toString(),
           completado:
             String(row?.[1] || "").toLowerCase().trim() === "true" ||
-            String(row?.[1] || "").trim() === "1"
+            String(row?.[1] || "").trim() === "1",
+          seccion: (row?.[2] || "").toString().trim() || "Super",
+          subseccion: (row?.[3] || "").toString().trim() || "",
+          noDisponible:
+            String(row?.[4] || "").toLowerCase().trim() === "true" ||
+            String(row?.[4] || "").trim() === "1"
         }));
 
       // Email (opcional)
@@ -853,23 +1053,30 @@ async function apiPost_(payload) {
         };
       }
 
-      // 2) normalizar/dedup/ordenar
+      // 2) normalizar/dedup/ordenar  ✅ (mantener seccion/subseccion/noDisponible)
       let clean = (items || [])
-        .map(it => ({ texto: (it?.texto || "").toString().trim(), completado: !!it?.completado }))
+        .map(it => ({
+          texto: (it?.texto || "").toString().trim(),
+          completado: !!it?.completado,
+          seccion: normCat(it?.seccion) || "Super",
+          subseccion: normCat(it?.subseccion) || "",
+          noDisponible: !!it?.noDisponible
+        }))
         .filter(it => it.texto !== "");
 
+      // dedupe case-insensitive por texto (mantiene el primero que aparezca)
       const seen = new Set();
-      clean = clean.filter(it => {
+      const out = [];
+      for (const it of clean) {
         const key = it.texto.toLowerCase();
-        if (seen.has(key)) return false;
+        if (seen.has(key)) continue;
         seen.add(key);
-        return true;
-      });
+        out.push(it);
+      }
+      clean = out;
 
-      clean.sort((a, b) => {
-        if (a.completado === b.completado) return a.texto.toLowerCase().localeCompare(b.texto.toLowerCase());
-        return (b.completado === true) - (a.completado === true);
-      });
+      // orden consistente con tu UI (noDisponible al final, luego para comprar, etc.)
+      clean = ordenarLista(clean);
 
       if (clean.length === 0) return { ok: false, error: "empty_list_blocked" };
 
@@ -879,8 +1086,17 @@ async function apiPost_(payload) {
 
       const values = [];
       for (let i = 0; i < maxLen; i++) {
-        if (i < clean.length) values.push([clean[i].texto, clean[i].completado ? "TRUE" : "FALSE"]);
-        else values.push(["", ""]);
+        if (i < clean.length) {
+          values.push([
+            clean[i].texto,
+            clean[i].completado ? "TRUE" : "FALSE",
+            (clean[i].seccion || "Super"),
+            (clean[i].subseccion || ""),
+            clean[i].noDisponible ? "TRUE" : "FALSE"
+          ]);
+        } else {
+          values.push(["", "", "", "", ""]);
+        }
       }
 
       const url =
@@ -890,7 +1106,13 @@ async function apiPost_(payload) {
       const body = {
         valueInputOption: "USER_ENTERED",
         data: [
-          { range: `${SHEET_NAME}!A2:B`, majorDimension: "ROWS", values },
+          // ✅ headers (por si no existen)
+          { range: `${SHEET_NAME}!A1:E1`, majorDimension: "ROWS", values: [["texto", "completado", "seccion", "subseccion", "no_disponible"]] },
+
+          // ✅ data
+          { range: `${SHEET_NAME}!A2:E`, majorDimension: "ROWS", values },
+
+          // meta
           { range: `${SHEET_NAME}!${META_CELL_A1}`, majorDimension: "ROWS", values: [[String(nextUA)]] }
         ]
       };
@@ -981,39 +1203,163 @@ function render() {
         ? listaItems
         : listaItems.filter(it => it.texto.toLowerCase().includes(filtroBusqueda));
 
-    listaFiltrada.forEach((item) => {
-        const index = listaItems.indexOf(item); // para que el botón eliminar use el índice real
+    // 3 zonas:
+    const paraComprar = listaFiltrada.filter(it => !!it.completado && !it.noDisponible);
+    const resto = listaFiltrada.filter(it => !it.completado && !it.noDisponible);
+    const noDisp = listaFiltrada.filter(it => !!it.noDisponible);
 
-        const itemContainer = document.createElement("div");
-        itemContainer.classList.add("item-container");
+    function sectionOrderKey(s) {
+      const ss = (s || "").toLowerCase();
+      if (ss === "verdulería" || ss === "verduleria") return "0_" + ss;
+      if (ss === "super") return "1_" + ss;
+      if (ss === "otros") return "2_" + ss;
+      return "3_" + ss;
+    }
 
-        const tick = document.createElement("input");
-        tick.type = "checkbox";
-        tick.checked = !!item.completado;
+    function groupBySeccionSub(items) {
+      const map = new Map(); // sec -> sub -> []
+      for (const it of (items || [])) {
+        const sec = getSeccionOrDefault(it);
+        const sub = getSubOrDefault(it) || "Sin subsección";
+        if (!map.has(sec)) map.set(sec, new Map());
+        const subMap = map.get(sec);
+        if (!subMap.has(sub)) subMap.set(sub, []);
+        subMap.get(sub).push(it);
+      }
+      return map;
+    }
 
-        tick.addEventListener("change", () => {
-            item.completado = tick.checked;
-            listaItems = dedupNormalize(listaItems);
-            localVersion++;                 // 👈 nuevo
-            render();
-            scheduleSave("Cambio de estado");
-        });
+    function renderZone(title, items, zoneType) {
+      if (!items.length) return;
 
+      const zone = document.createElement("div");
+      zone.className = "zone";
+      zone.style.marginBottom = "14px";
 
-        const listItem = document.createElement("p");
-        listItem.innerText = item.texto;
+      const h = document.createElement("div");
+      h.className = "zone-title";
+      h.textContent = title;
+      h.style.padding = "10px 10px 6px 10px";
+      h.style.color = "#fff";
+      h.style.fontWeight = "600";
+      h.style.opacity = "0.95";
+      zone.appendChild(h);
 
-        const botonEliminarItem = document.createElement("button");
-        botonEliminarItem.innerText = "Eliminar";
-        botonEliminarItem.classList.add("eliminar-item");
-        botonEliminarItem.setAttribute("data-index", index);
+      const grouped = groupBySeccionSub(items);
 
-        itemContainer.appendChild(tick);
-        itemContainer.appendChild(listItem);
-        itemContainer.appendChild(botonEliminarItem);
+      const secciones = Array.from(grouped.keys()).sort((a,b)=> {
+        return sectionOrderKey(a).localeCompare(sectionOrderKey(b));
+      });
 
-        seccionItems.appendChild(itemContainer);
-    });
+      for (const sec of secciones) {
+        const secBlock = document.createElement("div");
+        secBlock.className = "sec-block";
+        secBlock.style.margin = "0 10px 10px 10px";
+        secBlock.style.border = "1px solid rgba(255,255,255,0.05)";
+        secBlock.style.borderRadius = "12px";
+        secBlock.style.overflow = "hidden";
+
+        const secHeader = document.createElement("div");
+        secHeader.textContent = sec;
+        secHeader.style.padding = "10px 10px";
+        secHeader.style.background = "rgba(255,255,255,0.03)";
+        secHeader.style.fontWeight = "600";
+        secHeader.style.color = "#fff";
+        secBlock.appendChild(secHeader);
+
+        const subMap = grouped.get(sec);
+        const subs = Array.from(subMap.keys()).sort((a,b)=>a.localeCompare(b));
+
+        for (const sub of subs) {
+          const subHeader = document.createElement("div");
+          subHeader.textContent = "• " + sub;
+          subHeader.style.padding = "8px 10px";
+          subHeader.style.color = "rgba(255,255,255,0.75)";
+          subHeader.style.fontSize = "0.9rem";
+          subHeader.style.borderTop = "1px solid rgba(255,255,255,0.04)";
+          secBlock.appendChild(subHeader);
+
+          for (const item of subMap.get(sub)) {
+            const index = listaItems.indexOf(item);
+
+            const itemContainer = document.createElement("div");
+            itemContainer.classList.add("item-container");
+
+            const tick = document.createElement("input");
+            tick.type = "checkbox";
+            tick.checked = !!item.completado;
+
+            tick.addEventListener("change", () => {
+                item.completado = tick.checked;
+
+                // si lo desmarcás, por seguridad lo sacamos de "No disponible"
+                if (!item.completado) item.noDisponible = false;
+
+                listaItems = dedupNormalize(listaItems);
+                localVersion++;
+                render();
+                scheduleSave("Cambio de estado");
+            });
+
+            const listItem = document.createElement("p");
+            listItem.innerText = item.texto;
+
+            // ===== Botón No hay / Volver =====
+            const btnNoHay = document.createElement("button");
+            btnNoHay.className = "btn-nohay";
+            btnNoHay.type = "button";
+
+            if (item.noDisponible) {
+              btnNoHay.textContent = "Volver";
+              btnNoHay.title = "Sacar de No disponible";
+            } else {
+              btnNoHay.textContent = "No hay";
+              btnNoHay.title = "Marcar como No disponible";
+            }
+
+            // en "Resto" (no completado) no tiene sentido “No hay”
+            if (!item.completado && !item.noDisponible) {
+              btnNoHay.style.display = "none";
+            }
+
+            btnNoHay.addEventListener("click", () => {
+              if (item.noDisponible) {
+                item.noDisponible = false; // vuelve a su zona normal
+              } else {
+                // si lo marcás como no disponible, queda "para comprar" pero se va al final
+                item.noDisponible = true;
+                item.completado = true;
+              }
+              listaItems = dedupNormalize(listaItems);
+              localVersion++;
+              render();
+              scheduleSave(item.noDisponible ? "Marcado No disponible" : "Volvió a disponibles");
+            });
+
+            const botonEliminarItem = document.createElement("button");
+            botonEliminarItem.innerText = "Eliminar";
+            botonEliminarItem.classList.add("eliminar-item");
+            botonEliminarItem.setAttribute("data-index", index);
+
+            itemContainer.appendChild(tick);
+            itemContainer.appendChild(listItem);
+            itemContainer.appendChild(btnNoHay);
+            itemContainer.appendChild(botonEliminarItem);
+
+            secBlock.appendChild(itemContainer);
+          }
+        }
+
+        zone.appendChild(secBlock);
+      }
+
+      seccionItems.appendChild(zone);
+    }
+
+    renderZone("Para comprar", paraComprar, "comprar");
+    renderZone("No disponible", noDisp, "nodisp");
+    renderZone("Resto", resto, "resto");
+
 }
 
 // =====================
@@ -1030,19 +1376,28 @@ function agregarElemento(texto, completado = false) {
         saveTombstones(tombstones);
     }
 
-
     const existe = listaItems.some(obj => obj.texto.toLowerCase() === t.toLowerCase());
     if (existe) {
         toast("Ese item ya existe", "warn", "No se agregan duplicados.");
         return;
     }
 
-    listaItems.push({ texto: t, completado: !!completado });
-    listaItems = dedupNormalize(listaItems);
-    localVersion++;                 // 👈 nuevo
-    render();
-    scheduleSave("Item agregado");
+    const seccion = normCat(inputSeccion.value) || "Super";
+    const subseccion = normCat(inputSubseccion.value) || "";
 
+    listaItems.push({
+      texto: t,
+      completado: !!completado,
+      seccion,
+      subseccion,
+      noDisponible: false
+    });
+
+    listaItems = dedupNormalize(listaItems);
+    localVersion++;
+    render();
+    rebuildSectionDatalists();
+    scheduleSave("Item agregado");
 }
 
 function eliminarElemento(index) {
@@ -1708,6 +2063,7 @@ window.addEventListener("load", async () => {
         listaItems = dedupNormalize(cached.items);
         remoteMeta = cached.meta?.updatedAt ? { updatedAt: cached.meta.updatedAt } : { updatedAt: 0 };
         render();
+        rebuildSectionDatalists();
         setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando… (cache)" : "Sin conexión — usando cache");
     } else {
         setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando…" : "Sin conexión");
@@ -1718,6 +2074,7 @@ window.addEventListener("load", async () => {
     if (pending?.items) {
         listaItems = dedupNormalize(pending.items);
         render();
+        rebuildSectionDatalists();
         if (!isOnline()) {
             setSync("offline", "Sin conexión — Cambios pendientes");
         } else {
@@ -1748,5 +2105,8 @@ window.addEventListener("load", async () => {
       setSync("offline", "Sin conexión");
       btnRefresh.style.display = "none";
     }
+
+    // ✅ Asegura que el datalist tenga opciones aunque la lista esté vacía al inicio
+    rebuildSectionDatalists();
 
 });
