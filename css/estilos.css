@@ -340,9 +340,6 @@ button:active { background: #4d4d4d; transform: scale(0.995); }
 }
 
 /* Header de subsección (los div "• FRUTA", "• BEBIDAS..." etc) */
-.sec-block > div:not(:first-child){
-  /* no tocar los items, solo el header de subsección tiene estilo propio abajo */
-}
 
 /* subseccion: se detecta por el texto "• ..." (es el div que creás con subHeader) */
 .sec-block > div{
