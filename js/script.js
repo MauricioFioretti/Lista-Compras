@@ -1216,6 +1216,14 @@ function render() {
       return "3_" + ss;
     }
 
+    function normalizeSectionForCss(sec) {
+      const s = (sec || "").toString().trim().toLowerCase();
+      if (s === "verdulería" || s === "verduleria") return "verduleria";
+      if (s === "super") return "super";
+      if (s === "otros") return "otros";
+      return "default";
+    }
+
     function groupBySeccionSub(items) {
       const map = new Map(); // sec -> sub -> []
       for (const it of (items || [])) {
@@ -1229,7 +1237,7 @@ function render() {
       return map;
     }
 
-    function renderZone(title, items, zoneType) {
+    function renderZone(title, items) {
       if (!items.length) return;
 
       const zone = document.createElement("div");
@@ -1254,6 +1262,10 @@ function render() {
       for (const sec of secciones) {
         const secBlock = document.createElement("div");
         secBlock.className = "sec-block";
+
+        // ✅ NUEVO: clase por sección para colorear flúor
+        secBlock.classList.add("sec-" + normalizeSectionForCss(sec));
+
         secBlock.style.margin = "0 10px 10px 10px";
         secBlock.style.border = "1px solid rgba(255,255,255,0.05)";
         secBlock.style.borderRadius = "12px";
@@ -1356,10 +1368,9 @@ function render() {
       seccionItems.appendChild(zone);
     }
 
-    renderZone("Para comprar", paraComprar, "comprar");
-    renderZone("No disponible", noDisp, "nodisp");
-    renderZone("Resto", resto, "resto");
-
+    renderZone("Para comprar", paraComprar);
+    renderZone("No disponible", noDisp);
+    renderZone("Lista", resto);
 }
 
 // =====================
