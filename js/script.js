@@ -52,7 +52,7 @@ window.__testMeta = async function __testMeta() {
     const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
     const text = await r.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
+    try { json = text ? JSON.parse(text) : null; } catch { }
 
     console.log("__testMeta status:", r.status);
     console.log("__testMeta body:", json || text);
@@ -277,18 +277,18 @@ buscadorWrap.appendChild(limpiarBusquedaBtn);
 
 // Mostrar / ocultar la X según haya texto
 buscador.addEventListener("input", () => {
-    filtroBusqueda = (buscador.value || "").toLowerCase().trim();
-    limpiarBusquedaBtn.style.display = buscador.value ? "inline-block" : "none";
-    render();
+  filtroBusqueda = (buscador.value || "").toLowerCase().trim();
+  limpiarBusquedaBtn.style.display = buscador.value ? "inline-block" : "none";
+  render();
 });
 
 // Acción de limpiar
 limpiarBusquedaBtn.addEventListener("click", () => {
-    buscador.value = "";
-    filtroBusqueda = "";
-    limpiarBusquedaBtn.style.display = "none";
-    buscador.focus();
-    render();
+  buscador.value = "";
+  filtroBusqueda = "";
+  limpiarBusquedaBtn.style.display = "none";
+  buscador.focus();
+  render();
 });
 
 const seccionItems = document.createElement("section");
@@ -358,7 +358,7 @@ function rebuildSectionDatalists() {
   const setSec = new Set(DEFAULT_SECCIONES);
   for (const it of (listaItems || [])) setSec.add(getSeccionOrDefault(it));
 
-  const secciones = Array.from(setSec).filter(Boolean).sort((a,b)=>a.localeCompare(b));
+  const secciones = Array.from(setSec).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
   dlSecciones.innerHTML = "";
   for (const s of secciones) {
@@ -377,7 +377,7 @@ function rebuildSectionDatalists() {
     if (sub) setSub.add(sub);
   }
 
-  const subs = Array.from(setSub).sort((a,b)=>a.localeCompare(b));
+  const subs = Array.from(setSub).sort((a, b) => a.localeCompare(b));
   dlSubsecciones.innerHTML = "";
   for (const s of subs) {
     const opt = document.createElement("option");
@@ -482,7 +482,7 @@ window.__diagSheets = async function __diagSheets() {
 
     const text = await r.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
+    try { json = text ? JSON.parse(text) : null; } catch { }
 
     console.log("__diagSheets META status:", r.status);
     console.log("__diagSheets META body:", json || text);
@@ -511,7 +511,7 @@ function __expireTokenNow(hard = true) {
 
   // modo hard: invalida también lo guardado, así NO puede “revivir” del storage
   if (hard) {
-    try { localStorage.setItem(LS_OAUTH, JSON.stringify({ access_token: oauthAccessToken || "", expires_at: 0 })); } catch {}
+    try { localStorage.setItem(LS_OAUTH, JSON.stringify({ access_token: oauthAccessToken || "", expires_at: 0 })); } catch { }
     // si querés simular el caso extremo:
     // clearStoredOAuth(); oauthAccessToken = "";
   }
@@ -524,62 +524,62 @@ window.__expireTokenNow = __expireTokenNow;
 // Tombstones / merge helpers
 // =====================
 function loadTombstones() {
-    try {
-        const raw = localStorage.getItem(LS_TOMBSTONES);
-        const parsed = raw ? JSON.parse(raw) : null;
-        const keys = Array.isArray(parsed?.keys) ? parsed.keys : [];
-        return new Set(keys.map(k => (k || "").toString().toLowerCase()));
-    } catch {
-        return new Set();
-    }
+  try {
+    const raw = localStorage.getItem(LS_TOMBSTONES);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const keys = Array.isArray(parsed?.keys) ? parsed.keys : [];
+    return new Set(keys.map(k => (k || "").toString().toLowerCase()));
+  } catch {
+    return new Set();
+  }
 }
 
 function saveTombstones(set) {
-    try {
-        localStorage.setItem(LS_TOMBSTONES, JSON.stringify({ keys: Array.from(set) }));
-    } catch { }
+  try {
+    localStorage.setItem(LS_TOMBSTONES, JSON.stringify({ keys: Array.from(set) }));
+  } catch { }
 }
 
 let tombstones = loadTombstones();
 
 function keyFromTexto(texto) {
-    return (texto || "").toString().trim().toLowerCase();
+  return (texto || "").toString().trim().toLowerCase();
 }
 
 function mergeRemoteWithLocal(remoteItems, localItems, tombstoneSet) {
-    const byKey = new Map();
+  const byKey = new Map();
 
-    function normalizeItem(it) {
-      const texto = normalizarTexto(it?.texto);
-      if (!texto) return null;
-      return {
-        texto,
-        completado: !!it?.completado,
-        seccion: normCat(it?.seccion) || "Super",
-        subseccion: normCat(it?.subseccion) || "",
-        noDisponible: !!it?.noDisponible
-      };
-    }
+  function normalizeItem(it) {
+    const texto = normalizarTexto(it?.texto);
+    if (!texto) return null;
+    return {
+      texto,
+      completado: !!it?.completado,
+      seccion: normCat(it?.seccion) || "Super",
+      subseccion: normCat(it?.subseccion) || "",
+      noDisponible: !!it?.noDisponible
+    };
+  }
 
-    // base remoto
-    for (const it of (remoteItems || [])) {
-        const norm = normalizeItem(it);
-        if (!norm) continue;
-        const k = keyFromTexto(norm.texto);
-        if (tombstoneSet.has(k)) continue;
-        byKey.set(k, norm);
-    }
+  // base remoto
+  for (const it of (remoteItems || [])) {
+    const norm = normalizeItem(it);
+    if (!norm) continue;
+    const k = keyFromTexto(norm.texto);
+    if (tombstoneSet.has(k)) continue;
+    byKey.set(k, norm);
+  }
 
-    // overlay local (gana local)
-    for (const it of (localItems || [])) {
-        const norm = normalizeItem(it);
-        if (!norm) continue;
-        const k = keyFromTexto(norm.texto);
-        if (tombstoneSet.has(k)) continue;
-        byKey.set(k, norm);
-    }
+  // overlay local (gana local)
+  for (const it of (localItems || [])) {
+    const norm = normalizeItem(it);
+    if (!norm) continue;
+    const k = keyFromTexto(norm.texto);
+    if (tombstoneSet.has(k)) continue;
+    byKey.set(k, norm);
+  }
 
-    return dedupNormalize(Array.from(byKey.values()));
+  return dedupNormalize(Array.from(byKey.values()));
 }
 
 // ===== Control de cambios locales (evita pisadas por GET de verificación) =====
@@ -589,155 +589,155 @@ let localVersion = 0;        // sube cada vez que el usuario cambia algo
 // UI helpers
 // =====================
 function setSync(state, text) {
-    syncPill.classList.remove("ok", "saving", "offline");
-    if (state) syncPill.classList.add(state);
-    syncPill.querySelector(".sync-text").textContent = text;
+  syncPill.classList.remove("ok", "saving", "offline");
+  if (state) syncPill.classList.add(state);
+  syncPill.querySelector(".sync-text").textContent = text;
 }
 
 function escapeHtml(s) {
-    return (s ?? "").toString()
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+  return (s ?? "").toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function toast(msg, type = "ok", small = "") {
-    const el = document.createElement("div");
-    el.className = `toast ${type}`;
-    el.innerHTML = `${escapeHtml(msg)}${small ? `<div class="small">${escapeHtml(small)}</div>` : ""}`;
-    toastRoot.appendChild(el);
-    setTimeout(() => {
-        el.style.opacity = "0";
-        el.style.transform = "translateY(6px)";
-        el.style.transition = "all .2s ease";
-    }, 2400);
-    setTimeout(() => el.remove(), 2700);
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `${escapeHtml(msg)}${small ? `<div class="small">${escapeHtml(small)}</div>` : ""}`;
+  toastRoot.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateY(6px)";
+    el.style.transition = "all .2s ease";
+  }, 2400);
+  setTimeout(() => el.remove(), 2700);
 }
 
 // =====================
 // Data helpers
 // =====================
 function ordenarLista(arr) {
-    return (arr || []).sort((a, b) => {
-        // 1) No disponible siempre al final
-        const na = a.noDisponible ? 1 : 0;
-        const nb = b.noDisponible ? 1 : 0;
-        if (na !== nb) return na - nb;
+  return (arr || []).sort((a, b) => {
+    // 1) No disponible siempre al final
+    const na = a.noDisponible ? 1 : 0;
+    const nb = b.noDisponible ? 1 : 0;
+    if (na !== nb) return na - nb;
 
-        // 2) Para comprar (completado=true) arriba
-        const ca = a.completado ? 0 : 1;
-        const cb = b.completado ? 0 : 1;
-        if (ca !== cb) return ca - cb;
+    // 2) Para comprar (completado=true) arriba
+    const ca = a.completado ? 0 : 1;
+    const cb = b.completado ? 0 : 1;
+    if (ca !== cb) return ca - cb;
 
-        // 3) Luego por sección, subsección, texto
-        const sa = (a.seccion || "").toLowerCase();
-        const sb = (b.seccion || "").toLowerCase();
-        if (sa !== sb) return sa.localeCompare(sb);
+    // 3) Luego por sección, subsección, texto
+    const sa = (a.seccion || "").toLowerCase();
+    const sb = (b.seccion || "").toLowerCase();
+    if (sa !== sb) return sa.localeCompare(sb);
 
-        const ua = (a.subseccion || "").toLowerCase();
-        const ub = (b.subseccion || "").toLowerCase();
-        if (ua !== ub) return ua.localeCompare(ub);
+    const ua = (a.subseccion || "").toLowerCase();
+    const ub = (b.subseccion || "").toLowerCase();
+    if (ua !== ub) return ua.localeCompare(ub);
 
-        return (a.texto || "").toLowerCase().localeCompare((b.texto || "").toLowerCase());
-    });
+    return (a.texto || "").toLowerCase().localeCompare((b.texto || "").toLowerCase());
+  });
 }
 
 function normalizarTexto(t) {
-    return (t ?? "").toString().trim();
+  return (t ?? "").toString().trim();
 }
 
 function dedupNormalize(items) {
-    const seen = new Set();
-    const out = [];
-    for (const it of items || []) {
-        const texto = normalizarTexto(it?.texto);
-        if (!texto) continue;
+  const seen = new Set();
+  const out = [];
+  for (const it of items || []) {
+    const texto = normalizarTexto(it?.texto);
+    if (!texto) continue;
 
-        const key = texto.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
+    const key = texto.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-        out.push({
-            texto,
-            completado: !!it?.completado,
-            seccion: normCat(it?.seccion) || "Super",
-            subseccion: normCat(it?.subseccion) || "",
-            noDisponible: !!it?.noDisponible
-        });
-    }
-    return ordenarLista(out);
+    out.push({
+      texto,
+      completado: !!it?.completado,
+      seccion: normCat(it?.seccion) || "Super",
+      subseccion: normCat(it?.subseccion) || "",
+      noDisponible: !!it?.noDisponible
+    });
+  }
+  return ordenarLista(out);
 }
 
 // =====================
 // Cache
 // =====================
 function loadCache() {
-    try {
-        const raw = localStorage.getItem(LS_CACHE);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed?.items)) return null;
-        return parsed;
-    } catch {
-        return null;
-    }
+  try {
+    const raw = localStorage.getItem(LS_CACHE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.items)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function saveCache(items, meta = {}) {
-    try {
-        localStorage.setItem(LS_CACHE, JSON.stringify({
-            items,
-            meta: { updatedAt: meta.updatedAt || 0, ts: Date.now() }
-        }));
-    } catch { }
+  try {
+    localStorage.setItem(LS_CACHE, JSON.stringify({
+      items,
+      meta: { updatedAt: meta.updatedAt || 0, ts: Date.now() }
+    }));
+  } catch { }
 }
 
 function loadPending() {
-    try {
-        const raw = localStorage.getItem(LS_PENDING);
-        const p = raw ? JSON.parse(raw) : null;
-        return Array.isArray(p?.items) ? p : null;
-    } catch {
-        return null;
-    }
+  try {
+    const raw = localStorage.getItem(LS_PENDING);
+    const p = raw ? JSON.parse(raw) : null;
+    return Array.isArray(p?.items) ? p : null;
+  } catch {
+    return null;
+  }
 }
 
 function setPending(items) {
-    try { localStorage.setItem(LS_PENDING, JSON.stringify({ items, ts: Date.now() })); } catch { }
+  try { localStorage.setItem(LS_PENDING, JSON.stringify({ items, ts: Date.now() })); } catch { }
 }
 
 function clearPending() {
-    try { localStorage.removeItem(LS_PENDING); } catch { }
+  try { localStorage.removeItem(LS_PENDING); } catch { }
 }
 
 function isOnline() {
-    return navigator.onLine !== false;
+  return navigator.onLine !== false;
 }
 
 // =====================
 // OAuth helpers
 // =====================
 function isTokenValid() {
-    return !!oauthAccessToken && Date.now() < (oauthExpiresAt - 10_000);
+  return !!oauthAccessToken && Date.now() < (oauthExpiresAt - 10_000);
 }
 
 function loadStoredOAuth() {
-    try {
-        const raw = localStorage.getItem(LS_OAUTH);
-        const parsed = raw ? JSON.parse(raw) : null;
-        if (!parsed?.access_token || !parsed?.expires_at) return null;
-        return { access_token: parsed.access_token, expires_at: Number(parsed.expires_at) };
-    } catch {
-        return null;
-    }
+  try {
+    const raw = localStorage.getItem(LS_OAUTH);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed?.access_token || !parsed?.expires_at) return null;
+    return { access_token: parsed.access_token, expires_at: Number(parsed.expires_at) };
+  } catch {
+    return null;
+  }
 }
 function saveStoredOAuth(access_token, expires_at) {
-    try { localStorage.setItem(LS_OAUTH, JSON.stringify({ access_token, expires_at })); } catch { }
+  try { localStorage.setItem(LS_OAUTH, JSON.stringify({ access_token, expires_at })); } catch { }
 }
 function clearStoredOAuth() {
-    try { localStorage.removeItem(LS_OAUTH); } catch { }
+  try { localStorage.removeItem(LS_OAUTH); } catch { }
 }
 
 function loadStoredOAuthEmail() {
@@ -751,34 +751,34 @@ function loadStoredOAuthEmail() {
 }
 
 function saveStoredOAuthEmail(email) {
-    try { localStorage.setItem(LS_OAUTH_EMAIL, (email || "").toString()); } catch { }
+  try { localStorage.setItem(LS_OAUTH_EMAIL, (email || "").toString()); } catch { }
 }
 function clearStoredOAuthEmail() {
-    try { localStorage.removeItem(LS_OAUTH_EMAIL); } catch { }
+  try { localStorage.removeItem(LS_OAUTH_EMAIL); } catch { }
 }
 
 async function fetchUserEmailFromToken(accessToken) {
-    const r = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    if (!r.ok) throw new Error("No se pudo obtener userinfo");
-    const data = await r.json();
-    return (data?.email || "").toString();
+  const r = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!r.ok) throw new Error("No se pudo obtener userinfo");
+  const data = await r.json();
+  return (data?.email || "").toString();
 }
 
 function initOAuth() {
-    if (!window.google?.accounts?.oauth2?.initTokenClient) {
-        throw new Error("GIS no está cargado (falta gsi/client en HTML)");
-    }
+  if (!window.google?.accounts?.oauth2?.initTokenClient) {
+    throw new Error("GIS no está cargado (falta gsi/client en HTML)");
+  }
 
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: OAUTH_CLIENT_ID,
-        scope: OAUTH_SCOPES,
-        include_granted_scopes: true,
-        // evita prompts raros en algunos navegadores
-        use_fedcm_for_prompt: false,
-        callback: () => { } // lo seteo en requestAccessToken
-    });
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: OAUTH_CLIENT_ID,
+    scope: OAUTH_SCOPES,
+    include_granted_scopes: true,
+    // evita prompts raros en algunos navegadores
+    use_fedcm_for_prompt: false,
+    callback: () => { } // lo seteo en requestAccessToken
+  });
 }
 
 // prompt: "" (silent), "consent", "select_account"
@@ -887,11 +887,11 @@ async function ensureOAuthToken(allowInteractive = false, interactivePrompt = "c
 }
 
 async function forceSwitchAccount() {
-    clearStoredOAuth();
-    clearStoredOAuthEmail();
-    oauthAccessToken = "";
-    oauthExpiresAt = 0;
-    await ensureOAuthToken(true, "select_account");
+  clearStoredOAuth();
+  clearStoredOAuthEmail();
+  oauthAccessToken = "";
+  oauthExpiresAt = 0;
+  await ensureOAuthToken(true, "select_account");
 }
 
 // =====================
@@ -924,7 +924,7 @@ async function apiPost_(payload) {
 
     const text = await r.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
+    try { json = text ? JSON.parse(text) : null; } catch { }
 
     return { r, status: r.status, url, text, json };
   }
@@ -983,7 +983,7 @@ async function apiPost_(payload) {
     // ---------- GET ----------
     if (mode === "get") {
       const rangeItems = `${SHEET_NAME}!A2:E`;
-      const rangeMeta  = `${SHEET_NAME}!${META_CELL_A1}`;
+      const rangeMeta = `${SHEET_NAME}!${META_CELL_A1}`;
 
       const url =
         `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(SPREADSHEET_ID)}` +
@@ -1005,7 +1005,7 @@ async function apiPost_(payload) {
       const json = resp.json || {};
       const valueRanges = Array.isArray(json?.valueRanges) ? json.valueRanges : [];
       const itemsValues = Array.isArray(valueRanges?.[0]?.values) ? valueRanges[0].values : [];
-      const metaValues  = Array.isArray(valueRanges?.[1]?.values) ? valueRanges[1].values : [];
+      const metaValues = Array.isArray(valueRanges?.[1]?.values) ? valueRanges[1].values : [];
 
       const updatedAt = Number(metaValues?.[0]?.[0] || 0);
 
@@ -1028,7 +1028,7 @@ async function apiPost_(payload) {
       try {
         const who = await apiPost_({ mode: "whoami", access_token: token });
         if (who?.ok) email = who.email || "";
-      } catch {}
+      } catch { }
 
       return { ok: true, email, items, meta: { updatedAt, count: items.length } };
     }
@@ -1140,7 +1140,7 @@ async function apiPost_(payload) {
       try {
         const who = await apiPost_({ mode: "whoami", access_token: token });
         if (who?.ok) email = who.email || "";
-      } catch {}
+      } catch { }
 
       return { ok: true, email, saved: clean.length, meta: { updatedAt: nextUA, count: clean.length } };
     }
@@ -1170,10 +1170,10 @@ async function apiCall(mode, payload = {}, opts = {}) {
 
   // 4) retry con consent si falta scope/auth
   if (!data?.ok && (
-      data?.error === "missing_scope" ||
-      data?.error === "auth_required" ||
-      data?.error === "whoami_failed"
-    )) {
+    data?.error === "missing_scope" ||
+    data?.error === "auth_required" ||
+    data?.error === "whoami_failed"
+  )) {
     token = await ensureOAuthToken(true, "consent");
     body.access_token = token;
     data = await apiPost_(body);
@@ -1198,238 +1198,238 @@ async function verifyBackendAccessOrThrow(allowInteractive) {
 // Render
 // =====================
 function render() {
-    seccionItems.innerHTML = "";
+  seccionItems.innerHTML = "";
 
-    const listaFiltrada = !filtroBusqueda
-        ? listaItems
-        : listaItems.filter(it => it.texto.toLowerCase().includes(filtroBusqueda));
+  const listaFiltrada = !filtroBusqueda
+    ? listaItems
+    : listaItems.filter(it => it.texto.toLowerCase().includes(filtroBusqueda));
 
-    // 3 zonas:
-    const paraComprar = listaFiltrada.filter(it => !!it.completado && !it.noDisponible);
-    const resto = listaFiltrada.filter(it => !it.completado && !it.noDisponible);
-    const noDisp = listaFiltrada.filter(it => !!it.noDisponible);
+  // 3 zonas:
+  const paraComprar = listaFiltrada.filter(it => !!it.completado && !it.noDisponible);
+  const resto = listaFiltrada.filter(it => !it.completado && !it.noDisponible);
+  const noDisp = listaFiltrada.filter(it => !!it.noDisponible);
 
-    function sectionOrderKey(s) {
-      const ss = (s || "").toLowerCase();
-      if (ss === "verdulería" || ss === "verduleria") return "0_" + ss;
-      if (ss === "super") return "1_" + ss;
-      if (ss === "otros") return "2_" + ss;
-      return "3_" + ss;
+  function sectionOrderKey(s) {
+    const ss = (s || "").toLowerCase();
+    if (ss === "verdulería" || ss === "verduleria") return "0_" + ss;
+    if (ss === "super") return "1_" + ss;
+    if (ss === "otros") return "2_" + ss;
+    return "3_" + ss;
+  }
+
+  function normalizeSectionForCss(sec) {
+    const s = (sec || "").toString().trim().toLowerCase();
+    if (s === "verdulería" || s === "verduleria") return "verduleria";
+    if (s === "super") return "super";
+    if (s === "otros") return "otros";
+    return "default";
+  }
+
+  function groupBySeccionSub(items) {
+    const map = new Map(); // sec -> sub -> []
+    for (const it of (items || [])) {
+      const sec = getSeccionOrDefault(it);
+      const sub = getSubOrDefault(it) || "Sin subsección";
+      if (!map.has(sec)) map.set(sec, new Map());
+      const subMap = map.get(sec);
+      if (!subMap.has(sub)) subMap.set(sub, []);
+      subMap.get(sub).push(it);
     }
+    return map;
+  }
 
-    function normalizeSectionForCss(sec) {
-      const s = (sec || "").toString().trim().toLowerCase();
-      if (s === "verdulería" || s === "verduleria") return "verduleria";
-      if (s === "super") return "super";
-      if (s === "otros") return "otros";
-      return "default";
-    }
+  function renderZone(title, items) {
+    if (!items.length) return;
 
-    function groupBySeccionSub(items) {
-      const map = new Map(); // sec -> sub -> []
-      for (const it of (items || [])) {
-        const sec = getSeccionOrDefault(it);
-        const sub = getSubOrDefault(it) || "Sin subsección";
-        if (!map.has(sec)) map.set(sec, new Map());
-        const subMap = map.get(sec);
-        if (!subMap.has(sub)) subMap.set(sub, []);
-        subMap.get(sub).push(it);
-      }
-      return map;
-    }
+    const zone = document.createElement("div");
+    zone.className = "zone";
+    zone.style.marginBottom = "14px";
 
-    function renderZone(title, items) {
-      if (!items.length) return;
+    const h = document.createElement("div");
+    h.className = "zone-title";
+    h.textContent = title;
+    h.style.padding = "10px 10px 6px 10px";
+    h.style.color = "#fff";
+    h.style.fontWeight = "600";
+    h.style.opacity = "0.95";
+    zone.appendChild(h);
 
-      const zone = document.createElement("div");
-      zone.className = "zone";
-      zone.style.marginBottom = "14px";
+    const grouped = groupBySeccionSub(items);
 
-      const h = document.createElement("div");
-      h.className = "zone-title";
-      h.textContent = title;
-      h.style.padding = "10px 10px 6px 10px";
-      h.style.color = "#fff";
-      h.style.fontWeight = "600";
-      h.style.opacity = "0.95";
-      zone.appendChild(h);
+    const secciones = Array.from(grouped.keys()).sort((a, b) => {
+      return sectionOrderKey(a).localeCompare(sectionOrderKey(b));
+    });
 
-      const grouped = groupBySeccionSub(items);
+    for (const sec of secciones) {
+      const secBlock = document.createElement("div");
+      secBlock.className = "sec-block";
 
-      const secciones = Array.from(grouped.keys()).sort((a,b)=> {
-        return sectionOrderKey(a).localeCompare(sectionOrderKey(b));
-      });
+      // ✅ NUEVO: clase por sección para colorear flúor
+      secBlock.classList.add("sec-" + normalizeSectionForCss(sec));
 
-      for (const sec of secciones) {
-        const secBlock = document.createElement("div");
-        secBlock.className = "sec-block";
+      secBlock.style.margin = "0 10px 10px 10px";
+      secBlock.style.border = "1px solid rgba(255,255,255,0.05)";
+      secBlock.style.borderRadius = "12px";
+      secBlock.style.overflow = "hidden";
 
-        // ✅ NUEVO: clase por sección para colorear flúor
-        secBlock.classList.add("sec-" + normalizeSectionForCss(sec));
+      const secHeader = document.createElement("div");
+      secHeader.textContent = sec;
+      secHeader.style.padding = "10px 10px";
+      secHeader.style.background = "rgba(255,255,255,0.03)";
+      secHeader.style.fontWeight = "600";
+      secHeader.style.color = "#fff";
+      secBlock.appendChild(secHeader);
 
-        secBlock.style.margin = "0 10px 10px 10px";
-        secBlock.style.border = "1px solid rgba(255,255,255,0.05)";
-        secBlock.style.borderRadius = "12px";
-        secBlock.style.overflow = "hidden";
+      const subMap = grouped.get(sec);
+      const subs = Array.from(subMap.keys()).sort((a, b) => a.localeCompare(b));
 
-        const secHeader = document.createElement("div");
-        secHeader.textContent = sec;
-        secHeader.style.padding = "10px 10px";
-        secHeader.style.background = "rgba(255,255,255,0.03)";
-        secHeader.style.fontWeight = "600";
-        secHeader.style.color = "#fff";
-        secBlock.appendChild(secHeader);
+      for (const sub of subs) {
+        const subHeader = document.createElement("div");
+        subHeader.textContent = "• " + sub;
+        subHeader.style.padding = "8px 10px";
+        subHeader.style.color = "rgba(255,255,255,0.75)";
+        subHeader.style.fontSize = "0.9rem";
+        subHeader.style.borderTop = "1px solid rgba(255,255,255,0.04)";
+        secBlock.appendChild(subHeader);
 
-        const subMap = grouped.get(sec);
-        const subs = Array.from(subMap.keys()).sort((a,b)=>a.localeCompare(b));
+        for (const item of subMap.get(sub)) {
+          const index = listaItems.indexOf(item);
 
-        for (const sub of subs) {
-          const subHeader = document.createElement("div");
-          subHeader.textContent = "• " + sub;
-          subHeader.style.padding = "8px 10px";
-          subHeader.style.color = "rgba(255,255,255,0.75)";
-          subHeader.style.fontSize = "0.9rem";
-          subHeader.style.borderTop = "1px solid rgba(255,255,255,0.04)";
-          secBlock.appendChild(subHeader);
+          const itemContainer = document.createElement("div");
+          itemContainer.classList.add("item-container");
 
-          for (const item of subMap.get(sub)) {
-            const index = listaItems.indexOf(item);
+          const tick = document.createElement("input");
+          tick.type = "checkbox";
+          tick.checked = !!item.completado;
 
-            const itemContainer = document.createElement("div");
-            itemContainer.classList.add("item-container");
+          tick.addEventListener("change", () => {
+            item.completado = tick.checked;
 
-            const tick = document.createElement("input");
-            tick.type = "checkbox";
-            tick.checked = !!item.completado;
+            // si lo desmarcás, por seguridad lo sacamos de "No disponible"
+            if (!item.completado) item.noDisponible = false;
 
-            tick.addEventListener("change", () => {
-                item.completado = tick.checked;
+            listaItems = dedupNormalize(listaItems);
+            localVersion++;
+            render();
+            scheduleSave("Cambio de estado");
+          });
 
-                // si lo desmarcás, por seguridad lo sacamos de "No disponible"
-                if (!item.completado) item.noDisponible = false;
+          const listItem = document.createElement("p");
+          listItem.innerText = item.texto;
 
-                listaItems = dedupNormalize(listaItems);
-                localVersion++;
-                render();
-                scheduleSave("Cambio de estado");
-            });
+          // ===== Botón No hay / Volver =====
+          const btnNoHay = document.createElement("button");
+          btnNoHay.className = "btn-nohay";
+          btnNoHay.type = "button";
 
-            const listItem = document.createElement("p");
-            listItem.innerText = item.texto;
-
-            // ===== Botón No hay / Volver =====
-            const btnNoHay = document.createElement("button");
-            btnNoHay.className = "btn-nohay";
-            btnNoHay.type = "button";
-
-            if (item.noDisponible) {
-              btnNoHay.textContent = "Volver";
-              btnNoHay.title = "Sacar de No disponible";
-            } else {
-              btnNoHay.textContent = "No hay";
-              btnNoHay.title = "Marcar como No disponible";
-            }
-
-            // en "Resto" (no completado) no tiene sentido “No hay”
-            if (!item.completado && !item.noDisponible) {
-              btnNoHay.style.display = "none";
-            }
-
-            btnNoHay.addEventListener("click", () => {
-              if (item.noDisponible) {
-                item.noDisponible = false; // vuelve a su zona normal
-              } else {
-                // si lo marcás como no disponible, queda "para comprar" pero se va al final
-                item.noDisponible = true;
-                item.completado = true;
-              }
-              listaItems = dedupNormalize(listaItems);
-              localVersion++;
-              render();
-              scheduleSave(item.noDisponible ? "Marcado No disponible" : "Volvió a disponibles");
-            });
-
-            const botonEliminarItem = document.createElement("button");
-            botonEliminarItem.innerText = "Eliminar";
-            botonEliminarItem.classList.add("eliminar-item");
-            botonEliminarItem.setAttribute("data-index", index);
-
-            itemContainer.appendChild(tick);
-            itemContainer.appendChild(listItem);
-            itemContainer.appendChild(btnNoHay);
-            itemContainer.appendChild(botonEliminarItem);
-
-            secBlock.appendChild(itemContainer);
+          if (item.noDisponible) {
+            btnNoHay.textContent = "Volver";
+            btnNoHay.title = "Sacar de No disponible";
+          } else {
+            btnNoHay.textContent = "No hay";
+            btnNoHay.title = "Marcar como No disponible";
           }
-        }
 
-        zone.appendChild(secBlock);
+          // en "Resto" (no completado) no tiene sentido “No hay”
+          if (!item.completado && !item.noDisponible) {
+            btnNoHay.style.display = "none";
+          }
+
+          btnNoHay.addEventListener("click", () => {
+            if (item.noDisponible) {
+              item.noDisponible = false; // vuelve a su zona normal
+            } else {
+              // si lo marcás como no disponible, queda "para comprar" pero se va al final
+              item.noDisponible = true;
+              item.completado = true;
+            }
+            listaItems = dedupNormalize(listaItems);
+            localVersion++;
+            render();
+            scheduleSave(item.noDisponible ? "Marcado No disponible" : "Volvió a disponibles");
+          });
+
+          const botonEliminarItem = document.createElement("button");
+          botonEliminarItem.innerText = "Eliminar";
+          botonEliminarItem.classList.add("eliminar-item");
+          botonEliminarItem.setAttribute("data-index", index);
+
+          itemContainer.appendChild(tick);
+          itemContainer.appendChild(listItem);
+          itemContainer.appendChild(btnNoHay);
+          itemContainer.appendChild(botonEliminarItem);
+
+          secBlock.appendChild(itemContainer);
+        }
       }
 
-      seccionItems.appendChild(zone);
+      zone.appendChild(secBlock);
     }
 
-    renderZone("Para comprar", paraComprar);
-    renderZone("No disponible", noDisp);
-    renderZone("Lista", resto);
+    seccionItems.appendChild(zone);
+  }
+
+  renderZone("Para comprar", paraComprar);
+  renderZone("No disponible", noDisp);
+  renderZone("Lista", resto);
 }
 
 // =====================
 // CRUD
 // =====================
 function agregarElemento(texto, completado = false) {
-    const t = normalizarTexto(texto);
-    if (!t) return;
+  const t = normalizarTexto(texto);
+  if (!t) return;
 
-    // si estaba borrado (tombstone) y lo re-agregás, se perdona
-    const k = keyFromTexto(t);
-    if (k && tombstones.has(k)) {
-        tombstones.delete(k);
-        saveTombstones(tombstones);
-    }
+  // si estaba borrado (tombstone) y lo re-agregás, se perdona
+  const k = keyFromTexto(t);
+  if (k && tombstones.has(k)) {
+    tombstones.delete(k);
+    saveTombstones(tombstones);
+  }
 
-    const existe = listaItems.some(obj => obj.texto.toLowerCase() === t.toLowerCase());
-    if (existe) {
-        toast("Ese item ya existe", "warn", "No se agregan duplicados.");
-        return;
-    }
+  const existe = listaItems.some(obj => obj.texto.toLowerCase() === t.toLowerCase());
+  if (existe) {
+    toast("Ese item ya existe", "warn", "No se agregan duplicados.");
+    return;
+  }
 
-    const seccion = normCat(inputSeccion.value) || "Super";
-    const subseccion = normCat(inputSubseccion.value) || "";
+  const seccion = normCat(inputSeccion.value) || "Super";
+  const subseccion = normCat(inputSubseccion.value) || "";
 
-    listaItems.push({
-      texto: t,
-      completado: !!completado,
-      seccion,
-      subseccion,
-      noDisponible: false
-    });
+  listaItems.push({
+    texto: t,
+    completado: !!completado,
+    seccion,
+    subseccion,
+    noDisponible: false
+  });
 
-    listaItems = dedupNormalize(listaItems);
-    localVersion++;
-    render();
-    rebuildSectionDatalists();
-    scheduleSave("Item agregado");
+  listaItems = dedupNormalize(listaItems);
+  localVersion++;
+  render();
+  rebuildSectionDatalists();
+  scheduleSave("Item agregado");
 }
 
 function eliminarElemento(index) {
-    const item = listaItems[index];
-    if (!item) return;
+  const item = listaItems[index];
+  if (!item) return;
 
-    const ok = confirm(`¿Eliminar "${item.texto}"?`);
-    if (!ok) return;
+  const ok = confirm(`¿Eliminar "${item.texto}"?`);
+  if (!ok) return;
 
-    // tombstone para que NO vuelva por merge si remoto aún lo tiene
-    const k = keyFromTexto(item.texto);
-    if (k) {
-        tombstones.add(k);
-        saveTombstones(tombstones);
-    }
+  // tombstone para que NO vuelva por merge si remoto aún lo tiene
+  const k = keyFromTexto(item.texto);
+  if (k) {
+    tombstones.add(k);
+    saveTombstones(tombstones);
+  }
 
-    listaItems.splice(index, 1);
-    localVersion++;
-    render();
-    scheduleSave("Item eliminado");
+  listaItems.splice(index, 1);
+  localVersion++;
+  render();
+  scheduleSave("Item eliminado");
 }
 
 // =====================
@@ -1690,7 +1690,7 @@ async function trySyncPending() {
     setSync("ok", "Sincronizado ✅");
     btnRefresh.style.display = "none";
     toast("Sincronizado ✅", "ok", "Se aplicaron cambios pendientes.");
-    } catch (e) {
+  } catch (e) {
     dbgErr("trySyncPending ERROR:", e);
 
     setPending(listaItems);
@@ -1781,85 +1781,85 @@ async function refreshFromRemote(showToast = true, opts = { skipEnsureToken: fal
 // Eventos
 // =====================
 seccionItems.addEventListener("click", (event) => {
-    if (event.target.classList.contains("eliminar-item")) {
-        const index = parseInt(event.target.getAttribute("data-index"), 10);
-        eliminarElemento(index);
-    }
+  if (event.target.classList.contains("eliminar-item")) {
+    const index = parseInt(event.target.getAttribute("data-index"), 10);
+    eliminarElemento(index);
+  }
 });
 
 button1.addEventListener("click", () => {
-    const textoItem = input1.value;
-    if (normalizarTexto(textoItem) !== "") {
-        agregarElemento(textoItem, false);
-        input1.value = "";
+  const textoItem = input1.value;
+  if (normalizarTexto(textoItem) !== "") {
+    agregarElemento(textoItem, false);
+    input1.value = "";
 
-        // opcional: resetear búsqueda al agregar
-        if (typeof buscador !== "undefined") {
-            buscador.value = "";
-            filtroBusqueda = "";
-        }
-
-        input1.focus();
+    // opcional: resetear búsqueda al agregar
+    if (typeof buscador !== "undefined") {
+      buscador.value = "";
+      filtroBusqueda = "";
     }
+
+    input1.focus();
+  }
 });
 
 input1.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-        e.preventDefault();
-        button1.click();
-    }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    button1.click();
+  }
 });
 
 // Copiar
 buttonCopiar.addEventListener("click", () => {
-    if (listaItems.length === 0) {
-        toast("No hay items para copiar", "warn");
-        return;
-    }
-    const texto = listaItems.map(item => item.texto).join("\n");
-    navigator.clipboard.writeText(texto)
-        .then(() => toast("Copiado ✅", "ok", "Lista al portapapeles"))
-        .catch(() => toast("No se pudo copiar", "err"));
+  if (listaItems.length === 0) {
+    toast("No hay items para copiar", "warn");
+    return;
+  }
+  const texto = listaItems.map(item => item.texto).join("\n");
+  navigator.clipboard.writeText(texto)
+    .then(() => toast("Copiado ✅", "ok", "Lista al portapapeles"))
+    .catch(() => toast("No se pudo copiar", "err"));
 });
 
 // Importar
 buttonImportar.addEventListener("click", () => {
-    const textoPegado = textareaImportar.value;
+  const textoPegado = textareaImportar.value;
 
-    if (textoPegado.trim() === "") {
-        toast("Pegá primero una lista 😉", "warn");
-        return;
-    }
+  if (textoPegado.trim() === "") {
+    toast("Pegá primero una lista 😉", "warn");
+    return;
+  }
 
-    let candidatos = textoPegado.includes("\n")
-        ? textoPegado.split("\n")
-        : textoPegado.split(",");
+  let candidatos = textoPegado.includes("\n")
+    ? textoPegado.split("\n")
+    : textoPegado.split(",");
 
-    candidatos = candidatos.map(t => t.trim()).filter(t => t !== "");
+  candidatos = candidatos.map(t => t.trim()).filter(t => t !== "");
 
-    let agregados = 0;
-    for (const t of candidatos) {
-        const before = listaItems.length;
-        agregarElemento(t, false);
-        if (listaItems.length > before) agregados++;
-    }
+  let agregados = 0;
+  for (const t of candidatos) {
+    const before = listaItems.length;
+    agregarElemento(t, false);
+    if (listaItems.length > before) agregados++;
+  }
 
-    textareaImportar.value = "";
-    toast("Importado ✅", "ok", `${agregados} items agregados`);
+  textareaImportar.value = "";
+  toast("Importado ✅", "ok", `${agregados} items agregados`);
 });
 
 window.addEventListener("online", () => {
-    toast("Volvió la conexión", "ok", "Sincronizando…");
-    trySyncPending().finally(() => {
-      // ✅ si sigue pendiente, programar reintentos
-      scheduleRetry("online_event");
-    });
+  toast("Volvió la conexión", "ok", "Sincronizando…");
+  trySyncPending().finally(() => {
+    // ✅ si sigue pendiente, programar reintentos
+    scheduleRetry("online_event");
+  });
 });
 
 
 window.addEventListener("offline", () => {
-    setSync("offline", "Sin conexión — Guardado local");
-    toast("Sin conexión", "warn", "Podés seguir usando la lista.");
+  setSync("offline", "Sin conexión — Guardado local");
+  toast("Sin conexión", "warn", "Podés seguir usando la lista.");
 });
 
 // =====================
@@ -1927,22 +1927,22 @@ async function runConnectFlow({ interactive, prompt } = { interactive: false, pr
 
       return { ok: true };
     } catch (e) {
-  dbgErr("runConnectFlow ERROR:", e);
+      dbgErr("runConnectFlow ERROR:", e);
 
-  const msg = String(e?.message || e || "");
+      const msg = String(e?.message || e || "");
 
-  // ✅ mensaje uniforme
-  if (msg === "TOKEN_NEEDS_INTERACTIVE") {
-    setSync("offline", "Necesita Conectar");
-    btnRefresh.style.display = "inline-block";
-    return { ok: false, needsInteractive: true };
-  }
+      // ✅ mensaje uniforme
+      if (msg === "TOKEN_NEEDS_INTERACTIVE") {
+        setSync("offline", "Necesita Conectar");
+        btnRefresh.style.display = "inline-block";
+        return { ok: false, needsInteractive: true };
+      }
 
-  setSync("offline", "Necesita Conectar");
-  btnRefresh.style.display = "inline-block";
-  return { ok: false, error: msg };
-}
- finally {
+      setSync("offline", "Necesita Conectar");
+      btnRefresh.style.display = "inline-block";
+      return { ok: false, error: msg };
+    }
+    finally {
       // liberamos lock
       connectInFlight = null;
     }
@@ -1953,15 +1953,15 @@ async function runConnectFlow({ interactive, prompt } = { interactive: false, pr
 
 
 async function reconnectAndRefresh() {
-  // reconexión NO interactiva (sin popup)
-  return await runConnectFlow({ interactive: false, prompt: "" });
+  return await runConnectFlow({ interactive: false });
 }
 
 btnConnect.addEventListener("click", async () => {
   // si ya hay conexión corriendo, no duplicar
   if (isConnectBusy()) {
-    dbgWarn("btnConnect: connectInFlight activo, ignorando click");
-    return;
+    console.warn("FORZANDO NUEVO LOGIN");
+
+    connectInFlight = null;
   }
 
   // Si estaba en modo switch, primero limpiamos storage y pedimos select_account
@@ -2032,7 +2032,7 @@ setInterval(async () => {
     if (isTokenValid() && syncPill.querySelector(".sync-text")?.textContent?.includes("Necesita Conectar")) {
       await reconnectAndRefresh();
     }
-  } catch {}
+  } catch { }
 }, 20_000);
 
 document.addEventListener("visibilitychange", () => {
@@ -2048,77 +2048,77 @@ document.addEventListener("visibilitychange", () => {
 // INIT
 // =====================
 window.addEventListener("load", async () => {
-    input1.focus();
+  input1.focus();
 
-        // OAuth init + cargar token guardado
-    try {
-      initOAuth();
+  // OAuth init + cargar token guardado
+  try {
+    initOAuth();
 
-      const stored = loadStoredOAuth();
-      if (stored?.access_token && Date.now() < (stored.expires_at - 10_000)) {
-        oauthAccessToken = stored.access_token;
-        oauthExpiresAt = stored.expires_at;
+    const stored = loadStoredOAuth();
+    if (stored?.access_token && Date.now() < (stored.expires_at - 10_000)) {
+      oauthAccessToken = stored.access_token;
+      oauthExpiresAt = stored.expires_at;
 
-        // set UI con email si existe
-        const emailHint = loadStoredOAuthEmail();
-        setAccountUI(emailHint);
-      } else {
-        setAccountUI(loadStoredOAuthEmail());
-      }
-    } catch {
-      // si GIS no cargó, lo vas a ver al tocar Conectar
-    }
-
-    // 1) cache instantáneo
-    const cached = loadCache();
-    if (cached?.items) {
-        listaItems = dedupNormalize(cached.items);
-        remoteMeta = cached.meta?.updatedAt ? { updatedAt: cached.meta.updatedAt } : { updatedAt: 0 };
-        render();
-        rebuildSectionDatalists();
-        setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando… (cache)" : "Sin conexión — usando cache");
-    } else {
-        setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando…" : "Sin conexión");
-    }
-
-    // 2) pending
-    const pending = loadPending();
-    if (pending?.items) {
-        listaItems = dedupNormalize(pending.items);
-        render();
-        rebuildSectionDatalists();
-        if (!isOnline()) {
-            setSync("offline", "Sin conexión — Cambios pendientes");
-        } else {
-            await trySyncPending();
-            // ✅ si quedó pending, reintentar solo
-            scheduleRetry("load_pending");
-        }
-        return;
-    }
-
-
-    // 3) Auto-sync al cargar (SIN popup)
-    // - Si hay token/email guardado, intentamos reconectar silencioso
-    // - Si no se puede, queda "Necesita Conectar"
-    if (isOnline()) {
+      // set UI con email si existe
       const emailHint = loadStoredOAuthEmail();
-      const stored = loadStoredOAuth();
-
-      dbg("INIT: online. emailHint=", emailHint, "hasStoredToken=", !!stored?.access_token);
-
-      if (emailHint || (stored?.access_token && stored?.expires_at)) {
-        await reconnectAndRefresh(); // usa ensureOAuthToken(false) -> no popup
-      } else {
-        setSync("offline", "Necesita Conectar");
-        btnRefresh.style.display = "inline-block";
-      }
+      setAccountUI(emailHint);
     } else {
-      setSync("offline", "Sin conexión");
-      btnRefresh.style.display = "none";
+      setAccountUI(loadStoredOAuthEmail());
     }
+  } catch {
+    // si GIS no cargó, lo vas a ver al tocar Conectar
+  }
 
-    // ✅ Asegura que el datalist tenga opciones aunque la lista esté vacía al inicio
+  // 1) cache instantáneo
+  const cached = loadCache();
+  if (cached?.items) {
+    listaItems = dedupNormalize(cached.items);
+    remoteMeta = cached.meta?.updatedAt ? { updatedAt: cached.meta.updatedAt } : { updatedAt: 0 };
+    render();
     rebuildSectionDatalists();
+    setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando… (cache)" : "Sin conexión — usando cache");
+  } else {
+    setSync(isOnline() ? "saving" : "offline", isOnline() ? "Cargando…" : "Sin conexión");
+  }
+
+  // 2) pending
+  const pending = loadPending();
+  if (pending?.items) {
+    listaItems = dedupNormalize(pending.items);
+    render();
+    rebuildSectionDatalists();
+    if (!isOnline()) {
+      setSync("offline", "Sin conexión — Cambios pendientes");
+    } else {
+      await trySyncPending();
+      // ✅ si quedó pending, reintentar solo
+      scheduleRetry("load_pending");
+    }
+    return;
+  }
+
+
+  // 3) Auto-sync al cargar (SIN popup)
+  // - Si hay token/email guardado, intentamos reconectar silencioso
+  // - Si no se puede, queda "Necesita Conectar"
+  if (isOnline()) {
+    const emailHint = loadStoredOAuthEmail();
+    const stored = loadStoredOAuth();
+
+    dbg("INIT: online. emailHint=", emailHint, "hasStoredToken=", !!stored?.access_token);
+
+    if (emailHint || (stored?.access_token && stored?.expires_at)) {
+      await reconnectAndRefresh(); // usa ensureOAuthToken(false) -> no popup
+    } else {
+      setSync("offline", "Necesita Conectar");
+      btnRefresh.style.display = "inline-block";
+    }
+  } else {
+    setSync("offline", "Sin conexión");
+    btnRefresh.style.display = "none";
+  }
+
+  // ✅ Asegura que el datalist tenga opciones aunque la lista esté vacía al inicio
+  rebuildSectionDatalists();
 
 });
