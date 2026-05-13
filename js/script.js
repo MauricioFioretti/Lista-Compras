@@ -776,7 +776,7 @@ function initOAuth() {
         scope: OAUTH_SCOPES,
         include_granted_scopes: true,
         // evita prompts raros en algunos navegadores
-        use_fedcm_for_prompt: true,
+        use_fedcm_for_prompt: false,
         callback: () => { } // lo seteo en requestAccessToken
     });
 }
@@ -834,6 +834,7 @@ function requestAccessToken({ prompt, hint } = {}) {
     if (hint && String(hint).includes("@")) req.hint = hint;
 
     try {
+      console.log("OPENING POPUP", req);
       tokenClient.requestAccessToken(req);
     } catch (e) {
       clearTimeout(timer);
